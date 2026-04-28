@@ -65,6 +65,15 @@ body {
   padding: 20px;
 }
 
+.date-row {
+  display: flex;
+  gap: 12px;
+}
+
+.date-row, .control-group {
+  flex: 1;
+}
+
 .chart-panel,
 .controls-panel {
   background: var(--panel);
@@ -76,7 +85,7 @@ body {
 .chart-panel h2,
 .controls-panel h2 {
   margin-top: 0;
-  margin-bottom: 14px;
+  margin-bottom: 1px;
   font-size: 1.05rem;
   color: var(--text-main);
 }
@@ -97,7 +106,7 @@ body {
 .controls-panel {
   display: grid;
   align-content: start;
-  gap: 12px;
+  gap: 10px;
 }
 
 .control-group {
@@ -120,6 +129,34 @@ body {
   font: inherit;
   color: var(--text-main);
   background-color: var(--panel-soft);
+}
+
+.toggle-group {
+  display: flex;
+  gap: 10px;
+}
+
+.toggle-group button {
+  flex: 1;
+  border: 1px solid #bccfe0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--text-main);
+  background-color: var(--panel-soft);
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.toggle-group button:hover {
+  border-color: #4f8fbf;
+  transform: translateY(-1px);
+}
+
+.toggle-group button.active {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  color: #fff;
 }
 
 .control-group select:focus,
