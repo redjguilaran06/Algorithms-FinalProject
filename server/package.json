@@ -9,6 +9,9 @@
     "start": "node src/index.js"
   },
   "dependencies": {
+    "alphavantage": "^2.5.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
     "express": "^4.21.1"
   },
   "devDependencies": {

@@ -76,7 +76,7 @@ body {
 .chart-panel h2,
 .controls-panel h2 {
   margin-top: 0;
-  margin-bottom: 14px;
+  margin-bottom: 1px;
   font-size: 1.05rem;
   color: var(--text-main);
 }
@@ -97,7 +97,7 @@ body {
 .controls-panel {
   display: grid;
   align-content: start;
-  gap: 12px;
+  gap: 10px;
 }
 
 .control-group {
