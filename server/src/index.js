@@ -5,6 +5,7 @@ import YahooFinance from "yahoo-finance2";
 import { smaNaive, smaOptimized } from "./algorithms/sma.js";
 import { ema } from "./algorithms/ema.js";
 import { wma } from "./algorithms/wma.js";
+import { fetchWeatherApi } from "openmeteo";
 
 dotenv.config();
 
@@ -95,6 +96,52 @@ app.post("/api/compute-ma", (req, res) => {
   } catch (error) {
     console.error("MA computation error:", error);
     res.status(500).json({ error: "Failed to compute moving average" });
+  }
+});
+
+app.get("/api/weather/:location", async (req, res) => {
+  try {
+    const { location } = req.params;
+    const { start, end, interval } = req.query;
+    
+    if (!location || !location.trim()) {
+      return res.status(400).json({ error: "Location is required" });
+    }
+
+    const geoResponse = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${location}&count=1`);
+    const geoData = await geoResponse.json();
+    
+    if (!geoData.results || geoData.results.length === 0) {
+      return res.status(404).json({ error: "City not found" });
+    }
+
+    const { latitude, longitude, name, country } = geoData.results[0];
+    console.log(`Found ${name}, ${country} at ${latitude}, ${longitude}`);
+
+    const params = {
+      latitude,
+      longitude,
+      current: "temperature_2m,weather_code",
+      timezone: "auto",
+    };
+
+    const responses = await fetchWeatherApi("https://api.open-meteo.com/v1/forecast", params);
+    const response = responses[0];
+    const current = response.current();
+
+    const weatherData = {
+      location: { name, country, latitude, longitude },
+      current: {
+        temperature: current.variables(0).value(),
+        weatherCode: current.variables(1).value(),
+      },
+    };
+
+    res.json(weatherData);
+
+  } catch (error) {
+    console.error("Weather data error:", error);
+    res.status(500).json({ error: "Failed to fetch weather data" });
   }
 });
 

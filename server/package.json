@@ -13,6 +13,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^4.21.1",
+    "openmeteo": "^1.2.3",
     "yahoo-finance2": "^3.14.0"
   },
   "devDependencies": {

@@ -155,6 +155,7 @@ function App() {
   const [errorMessage, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [timeInterval, setTimeInterval] = useState("1d");
+  const [headerDropdown, setHeaderDropdown] = useState("stock");
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setFullYear(date.getFullYear() - 1);
@@ -550,7 +551,18 @@ function App() {
         </section>
 
         <section className="controls-panel">
-          <h2>Controls</h2>
+          <div className="controls-header">
+            <h2>Controls</h2>
+            <select 
+              className="control-dropdown"
+              value={headerDropdown}
+              onChange={(event) => setHeaderDropdown(event.target.value)}
+            >
+              <option value="stock"> Stocks </option>
+              <option value="weather"> Weather </option>
+              <option value="traffic"> Traffic </option>
+            </select>
+          </div>
 
           <div className="control-group">
             <label htmlFor="stock-company">Search for a Company by Symbol</label>
