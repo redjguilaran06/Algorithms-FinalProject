@@ -137,9 +137,9 @@ app.post("/api/compute-ma", (req, res) => {
 
 app.post("/api/classify-trend", (req, res) => {
   try {
-    const { prices, maArrays, periods, crossovers } = req.body;
+    const { prices, maArrays, periods, crossovers, mode } = req.body;
 
-    const trendResult = classifyTrend(prices, maArrays, periods, crossovers);
+    const trendResult = classifyTrend(prices, maArrays, periods, crossovers, mode);
 
     res.json({
       trend: trendResult.consensus,
@@ -228,17 +228,12 @@ app.get("/api/weather/:location", async (req, res) => {
     const daily = times.map((dt, i) => {
       const max = Number.isFinite(Number(tmax[i])) ? Number(tmax[i]) : null;
       const min = Number.isFinite(Number(tmin[i])) ? Number(tmin[i]) : null;
-      const avg =
-        max !== null && min !== null ? (max + min) / 2 : (max ?? min ?? null);
+      const avg = max !== null && min !== null ? (max + min) / 2 : (max ?? min ?? null);
       const prevAvg =
         i > 0
           ? (() => {
-              const prevMax = Number.isFinite(Number(tmax[i - 1]))
-                ? Number(tmax[i - 1])
-                : null;
-              const prevMin = Number.isFinite(Number(tmin[i - 1]))
-                ? Number(tmin[i - 1])
-                : null;
+              const prevMax = Number.isFinite(Number(tmax[i - 1])) ? Number(tmax[i - 1]) : null;
+              const prevMin = Number.isFinite(Number(tmin[i - 1])) ? Number(tmin[i - 1]) : null;
               return prevMax !== null && prevMin !== null
                 ? (prevMax + prevMin) / 2
                 : (prevMax ?? prevMin ?? avg);

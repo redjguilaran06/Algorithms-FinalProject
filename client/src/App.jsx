@@ -184,11 +184,13 @@ function App() {
         ? stockData
         : headerDropdown === "weather"
           ? weatherData
-          : [];
+          : headerDropdown === "earthquake"
+            ? earthquakeData
+            : [];
     if (maSeries.length > 0 && activeData.length > 0) {
       handleApply();
     }
-  }, [maConfigs, headerDropdown, stockData, weatherData]);
+  }, [maConfigs, headerDropdown, stockData, weatherData, earthquakeData]);
 
   const searchTimeout = useRef(null);
 
@@ -484,9 +486,7 @@ function App() {
   };
 
   const removeMaConfig = (id) => {
-    setMaConfigs((prev) =>
-      prev.length > 1 ? prev.filter((config) => config.id !== id) : prev,
-    );
+    setMaConfigs((prev) => prev.filter((config) => config.id !== id));
   };
 
   const handleApply = async () => {
@@ -569,6 +569,7 @@ function App() {
             maArrays: computed.map((entry) => entry.values),
             periods: computed.map((entry) => entry.period),
             crossovers: nextCrossovers,
+            mode: headerDropdown,
           }),
         },
       );
