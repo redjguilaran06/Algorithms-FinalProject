@@ -5,6 +5,8 @@ import YahooFinance from "yahoo-finance2";
 import { smaOptimized } from "./algorithms/sma.js";
 import { ema } from "./algorithms/ema.js";
 import { wma } from "./algorithms/wma.js";
+import { classifyTrend } from "./algorithms/trend.js";
+import { fetchWeatherApi } from "openmeteo";
 
 dotenv.config();
 
@@ -130,6 +132,24 @@ app.post("/api/compute-ma", (req, res) => {
   } catch (error) {
     console.error("MA computation error:", error);
     res.status(500).json({ error: "Failed to compute moving average" });
+  }
+});
+
+app.post("/api/classify-trend", (req, res) => {
+  try {
+    const { prices, maArrays, periods, crossovers } = req.body;
+
+    const trendResult = classifyTrend(prices, maArrays, periods, crossovers);
+
+    res.json({
+      trend: trendResult.consensus,
+      trend_reason: trendResult.reason,
+      trend_agree: trendResult.allAgree,
+      trend_detail: trendResult.perMa,
+    });
+  } catch (error) {
+    console.error("Trend classification error:", error);
+    res.status(500).json({ error: "Failed to classify trend" });
   }
 });
 
