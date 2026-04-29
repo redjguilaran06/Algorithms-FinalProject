@@ -19,6 +19,31 @@ app.get("/api/test", (_request, response) => {
   response.json({ message: "API is working" });
 });
 
+app.get("/api/stock/search/:query", async (req, res) => {
+  try {
+    const { query } = req.params;
+    if (!query || query.trim().length < 1) {
+      return res.status(400).json({ error: "Query is required" });
+    }
+
+    const result = await yahooFinance.search(query.trim());
+
+    const suggestions = (result.quotes || [])
+      .filter((q) => q.symbol && q.quoteType === "EQUITY")
+      .slice(0, 6)
+      .map((q) => ({
+        symbol: q.symbol,
+        name: q.shortname || q.longname || q.symbol,
+        exchange: q.exchange || null,
+      }));
+
+    res.json(suggestions);
+  } catch (error) {
+    console.error("Search error:", error);
+    res.status(500).json({ error: "Failed to search" });
+  }
+});
+
 app.get("/api/stock/:symbol", async (req, res) => {
   try {
     const { symbol } = req.params;
@@ -68,6 +93,7 @@ app.get("/api/stock/:symbol", async (req, res) => {
   }
 });
 
+
 app.post("/api/compute-ma", (req, res) => {
   try {
     const { prices, maType, period } = req.body;
@@ -102,6 +128,34 @@ app.post("/api/compute-ma", (req, res) => {
   } catch (error) {
     console.error("MA computation error:", error);
     res.status(500).json({ error: "Failed to compute moving average" });
+  }
+});
+
+app.get("/api/weather/search/:query", async (req, res) => {
+  try {
+    const { query } = req.params;
+
+    if (!query || query.trim().length < 1) {
+      return res.status(400).json({ error: "Query is required" });
+    }
+
+    const results = await fetch(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query.trim())}&count=6`
+    );
+    const data = await results.json();
+
+    const suggestions = (data.results || []).map((r) => ({
+      name: r.name,
+      country: r.country,
+      countryCode: (r.country_code || r.countryCode || null)?.toUpperCase?.() ?? null,
+      region: r.admin1 || null,
+      display: `${r.name}${r.admin1 ? `, ${r.admin1}` : ""}, ${r.country}`,
+    }));
+
+    res.json(suggestions);
+  } catch (error) {
+    console.error("Weather search error:", error);
+    res.status(500).json({ error: "Failed to search weather locations" });
   }
 });
 

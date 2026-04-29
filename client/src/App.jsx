@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Chart from "react-apexcharts";
 
 const MA_COLORS = ["#F0B90B", "#2BD9FE", "#3B82F6", "#22C55E", "#F97316"];
@@ -207,6 +207,11 @@ function App() {
   });
   const [endDate, setEndDate] = useState(new Date().toISOString().split("T")[0]);
   const [stockCurrency, setStockCurrency] = useState(null);
+  const [stockSuggestions, setStockSuggestions] = useState([]);
+  const [showStockSuggestions, setShowStockSuggestions] = useState(false);
+  const [locationSuggestions, setLocationSuggestions] = useState([]);
+  const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
+
 
   useEffect(() => {
     const checkApi = async () => {
@@ -221,6 +226,72 @@ function App() {
 
     checkApi();
   }, []);
+
+  const searchTimeout = useRef(null);
+
+  const handleSymbolChange = (e) => {
+    const value = e.target.value.toUpperCase();
+    setSymbol(value);
+
+    clearTimeout(searchTimeout.current);
+    if (value.trim().length < 1) {
+      setStockSuggestions([]);
+      setShowStockSuggestions(false);
+      return;
+    }
+
+    searchTimeout.current = setTimeout(async () => {
+      try {
+        const response = await fetch(`http://localhost:5001/api/stock/search/${value.trim()}`);
+        const data = await response.json();
+        setStockSuggestions(Array.isArray(data) ? data : []);
+        setShowStockSuggestions(true);
+      } catch {
+        setStockSuggestions([]);
+      }
+    }, 300);
+  };
+
+  const handleSuggestionClick = (suggestion) => {
+    setSymbol(suggestion.symbol);
+    setStockSuggestions([]);
+    setShowStockSuggestions(false);
+    fetchStockData({ symbol: suggestion.symbol });
+  };
+
+  const locationSearchTimeout = useRef(null);
+
+  const handleLocationChange = (e) => {
+  const value = e.target.value;
+  setWeatherLocation(value);
+
+  clearTimeout(locationSearchTimeout.current);
+  if (value.trim().length < 1) {
+    setLocationSuggestions([]);
+    setShowLocationSuggestions(false);
+    return;
+  }
+
+  locationSearchTimeout.current = setTimeout(async () => {
+    try {
+      const response = await fetch(
+        `http://localhost:5001/api/weather/search/${encodeURIComponent(value.trim())}`
+      );
+      const data = await response.json();
+      setLocationSuggestions(Array.isArray(data) ? data : []);
+      setShowLocationSuggestions(true);
+    } catch {
+      setLocationSuggestions([]);
+    }
+  }, 300);
+};
+
+const handleLocationSuggestionClick = (suggestion) => {
+  setWeatherLocation(suggestion.name);
+  setLocationSuggestions([]);
+  setShowLocationSuggestions(false);
+  fetchWeatherData({ location: suggestion.name });
+};
 
   const fetchStockData = async (overrides = {}) => {
     const nextSymbol = overrides.symbol ?? symbol;
@@ -691,28 +762,64 @@ function App() {
 
           <div className="control-group">
             {headerDropdown === "stock" ? (
-              <>
-                <label htmlFor="stock-company">Search for a Company by Symbol</label>
-                <input
-                  id="stock-company"
-                  type="text"
-                  value={symbol}
-                  onChange={(event) => setSymbol(event.target.value.toUpperCase())}
-                  onKeyPress={handleSymbolKeyPress}
-                  placeholder="Enter symbol and press Enter"
-                />
-              </>
+  <>
+    <label htmlFor="stock-company">Search for a Company</label>
+      <div style={{ position: "relative" }}>
+        <input
+            id="stock-company"
+            type="text"
+            value={symbol}
+            onChange={handleSymbolChange}
+            onKeyPress={handleSymbolKeyPress}
+            onBlur={() => setTimeout(() => setShowStockSuggestions(false), 150)}
+            placeholder="Search by symbol or company name"
+        />
+        {showStockSuggestions && stockSuggestions.length > 0 && (
+          <ul className="suggestions-list">
+            {stockSuggestions.map((s) => (
+              <li
+                key={s.symbol}
+                className="suggestion-item"
+                onMouseDown={() => handleSuggestionClick(s)}
+              >
+                <span className="suggestion-symbol">{s.symbol}</span>
+                <span className="suggestion-name">{s.name}</span>
+                {s.exchange && <span className="suggestion-exchange">{s.exchange}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </>
             ) : headerDropdown === "weather" ? (
               <>
                 <label htmlFor="weather-location">Search Location</label>
-                <input
-                  id="weather-location"
-                  type="text"
-                  value={weatherLocation}
-                  onChange={(e) => setWeatherLocation(e.target.value)}
-                  onKeyPress={handleLocationKeyPress}
-                  placeholder="Enter city name and press Enter"
-                />
+<div style={{ position: "relative" }}>
+  <input
+    id="weather-location"
+    type="text"
+    value={weatherLocation}
+    onChange={handleLocationChange}
+    onKeyPress={handleLocationKeyPress}
+    onBlur={() => setTimeout(() => setShowLocationSuggestions(false), 150)}
+    placeholder="Search by city"
+  />
+  {showLocationSuggestions && locationSuggestions.length > 0 && (
+    <ul className="suggestions-list">
+      {locationSuggestions.map((s, index) => (
+        <li
+          key={index}
+          className="suggestion-item"
+          onMouseDown={() => handleLocationSuggestionClick(s)}
+        >
+          <span className="suggestion-symbol">{s.name}</span>
+          <span className="suggestion-name">{s.region ?? s.country}</span>
+          <span className="suggestion-exchange">{s.countryCode}</span>
+        </li>
+      ))}
+    </ul>
+  )}
+</div>
               </>
             ) : (
               <>
