@@ -144,6 +144,48 @@ const calculateCrossovers = (shortMa, longMa, dates, prices) => {
   return results;
 };
 
+const getActiveChartValue = (entry, mode) => {
+  if (mode === "weather") {
+    return Number(entry?.close ?? entry?.temperature ?? null);
+  }
+
+  return Number(entry?.close ?? null);
+};
+
+const buildCandlestickData = (data, mode) => {
+  return data.map((entry) => ({
+    x: new Date(entry.date).getTime(),
+    y: mode === "weather"
+      ? [
+          Number(entry.open ?? entry.temperature),
+          Number(entry.high ?? entry.temperature),
+          Number(entry.low ?? entry.temperature),
+          Number(entry.close ?? entry.temperature),
+        ]
+      : [Number(entry.open), Number(entry.high), Number(entry.low), Number(entry.close)],
+  }));
+};
+
+const getCandlestickColumnWidth = (mode, interval) => {
+  if (mode !== "weather") {
+    return "60%";
+  }
+
+  if (interval === "1d") {
+    return "55%";
+  }
+
+  if (interval === "1wk") {
+    return "72%";
+  }
+
+  if (interval === "1mo") {
+    return "88%";
+  }
+
+  return "72%";
+};
+
 function App() {
   const [symbol, setSymbol] = useState("");
   const [stockData, setStockData] = useState([]);
@@ -164,6 +206,7 @@ function App() {
     return date.toISOString().split("T")[0];
   });
   const [endDate, setEndDate] = useState(new Date().toISOString().split("T")[0]);
+  const [stockCurrency, setStockCurrency] = useState(null);
 
   useEffect(() => {
     const checkApi = async () => {
@@ -202,14 +245,17 @@ function App() {
       }
       const result = await response.json();
 
-      if (Array.isArray(result)) {
-        const cleaned = [...result]
+      const stockRows = Array.isArray(result) ? result : result?.data;
+      if (Array.isArray(stockRows)) {
+        const cleaned = [...stockRows]
           .reverse()
           .filter((entry) => entry?.close !== null && entry?.close !== undefined);
         setStockData(cleaned);
+        setStockCurrency(result?.currency ?? "USD");
       } else {
         console.warn("Unexpected stock data format", result);
         setStockData([]);
+        setStockCurrency(result?.currency ?? "USD");
       }
 
       setMaSeries([]);
@@ -234,6 +280,7 @@ function App() {
     const nextLocation = overrides.location ?? weatherLocation;
     const nextStart = overrides.startDate ?? startDate;
     const nextEnd = overrides.endDate ?? endDate;
+    const nextTimeInterval = overrides.timeInterval ?? timeInterval;
 
     if (!nextLocation.trim()) {
       setErrorMessage("Location is required");
@@ -244,7 +291,7 @@ function App() {
       setLoading(true);
       setErrorMessage("");
       const response = await fetch(
-        `http://localhost:5001/api/weather/${encodeURIComponent(nextLocation.trim())}?start=${nextStart}&end=${nextEnd}`
+        `http://localhost:5001/api/weather/${encodeURIComponent(nextLocation.trim())}?start=${nextStart}&end=${nextEnd}&interval=${nextTimeInterval}`
       );
       if (!response.ok) {
         const errorResult = await response.json().catch(() => ({}));
@@ -281,6 +328,13 @@ function App() {
   const handleIntervalChange = (event) => {
     const nextInterval = event.target.value;
     setTimeInterval(nextInterval);
+    if (headerDropdown === "weather") {
+      if (weatherLocation.trim()) {
+        fetchWeatherData({ timeInterval: nextInterval, location: weatherLocation });
+      }
+      return;
+    }
+
     if (symbol.trim()) {
       fetchStockData({ interval: nextInterval });
     }
@@ -317,9 +371,7 @@ function App() {
         return;
       }
 
-      const prices = activeData.map((d) => {
-        return headerDropdown === "stock" ? Number(d.close) : Number(d.temperature);
-      });
+      const prices = activeData.map((d) => getActiveChartValue(d, headerDropdown));
 
       setLoading(true);
 
@@ -376,15 +428,12 @@ function App() {
     const activeData = headerDropdown === "stock" ? stockData : headerDropdown === "weather" ? weatherData : [];
     if (!activeData.length) return [];
 
-    if (headerDropdown === "stock" && graphType === "candlestick") {
+    if (graphType === "candlestick") {
       return [
         {
           name: "Candles",
           type: "candlestick",
-          data: activeData.map((d) => ({
-            x: new Date(d.date).getTime(),
-            y: [Number(d.open), Number(d.high), Number(d.low), Number(d.close)],
-          })),
+          data: buildCandlestickData(activeData, headerDropdown),
         },
       ];
     }
@@ -395,7 +444,7 @@ function App() {
         type: "line",
         data: activeData.map((d) => ({
           x: new Date(d.date).getTime(),
-          y: headerDropdown === "stock" ? Number(d.close) : Number(d.temperature),
+          y: getActiveChartValue(d, headerDropdown),
         })),
       },
     ];
@@ -489,6 +538,8 @@ function App() {
         widths.push(0);
       } else if (index === 0 && graphType === "line") {
         widths.push(2);
+      } else if (index === 0 && graphType === "candlestick") {
+        widths.push(0);
       } else {
         widths.push(2);
       }
@@ -502,6 +553,27 @@ function App() {
         trendInfo.sinceDate ? new Date(trendInfo.sinceDate).toLocaleDateString() : "last cross"
       }`
     : "Insufficient MA history";
+
+  const formatChartValue = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) {
+      return value;
+    }
+
+    if (headerDropdown === "weather") {
+      return `${num.toFixed(2)}°C`;
+    }
+
+    try {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: stockCurrency || "USD",
+        maximumFractionDigits: 2,
+      }).format(num);
+    } catch {
+      return `$${num.toFixed(2)}`;
+    }
+  };
 
   return (
     <div className="app-shell">
@@ -568,11 +640,30 @@ function App() {
                       labels: { style: { colors: "#94a3b8" } },
                     },
                     stroke: { curve: "smooth", width: strokeWidths },
-                    tooltip: { theme: "dark", x: { format: "yyyy-MM-dd" }, shared: true },
-                    yaxis: { decimalsInFloat: 2, labels: { style: { colors: "#94a3b8" } } },
+                    tooltip: {
+                      theme: "dark",
+                      x: { format: "yyyy-MM-dd" },
+                      shared: true,
+                      y: { formatter: (value) => formatChartValue(value) },
+                    },
+                    yaxis: {
+                      decimalsInFloat: 2,
+                      labels: {
+                        style: { colors: "#94a3b8" },
+                        formatter: (value) => formatChartValue(value),
+                      },
+                    },
                     colors: chartColors,
                     markers: { size: markerSizes, strokeWidth: 2, strokeColors: "#0f172a" },
-                    plotOptions: { candlestick: { colors: { upward: "#22C55E", downward: "#EF4444" } } },
+                    plotOptions: {
+                      candlestick: {
+                        colors: { upward: "#22C55E", downward: "#EF4444" },
+                        wick: { useFillColor: true },
+                      },
+                      bar: {
+                        columnWidth: getCandlestickColumnWidth(headerDropdown, timeInterval),
+                      },
+                    },
                     legend: { show: true, position: "top", labels: { colors: "#d1d5db" } },
                   }}
                   series={series}

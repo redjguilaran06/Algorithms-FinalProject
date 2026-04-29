@@ -180,27 +180,19 @@ body::before {
 }
 
 .control-dropdown {
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-main);
-  border: 1px solid var(--line-strong);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  font-family: "Sora", sans-serif;
-  font-size: 0.95rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.control-dropdown:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: var(--accent);
+  padding: 8px 12px;
+  font: inherit;
+  color: var(--text-main);
+  background: rgba(9, 14, 24, 0.96);
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
 .control-dropdown:focus {
   outline: none;
-  background: rgba(255, 255, 255, 0.12);
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(240, 185, 11, 0.2);
+  border-color: rgba(240, 185, 11, 0.55);
+  box-shadow: 0 0 0 4px rgba(240, 185, 11, 0.12);
 }
 
 .chart-panel {

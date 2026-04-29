@@ -33,11 +33,14 @@ app.get("/api/stock/:symbol", async (req, res) => {
 
 
     console.log(`Fetching ${symbol}: Start: ${start}, End: ${end}, Interval: ${interval}`);
-    const result = await yahooFinance.historical(symbol.trim().toUpperCase(), {
+    const [result, quote] = await Promise.all([
+      yahooFinance.historical(symbol.trim().toUpperCase(), {
       period1,
       period2,
       interval: interval,
-    });
+    }),
+      yahooFinance.quote(symbol),
+  ]);
 
     if (!Array.isArray(result) || result.length === 0) {
       return res.status(404).json({ error: "No stock data found" });
@@ -54,7 +57,10 @@ app.get("/api/stock/:symbol", async (req, res) => {
         volume: entry.volume ?? null,
       }));
   
-    res.json(dataArray);
+    res.json({
+      currency: quote?.currency ?? "USD",
+      data: dataArray,
+    });
 
   } catch (error) {
     console.error("Historical data error:", error);
@@ -102,13 +108,13 @@ app.post("/api/compute-ma", (req, res) => {
 app.get("/api/weather/:location", async (req, res) => {
   try {
     const { location } = req.params;
+    const { interval } = req.query;
     let { start, end } = req.query;
 
     if (!location || !location.trim()) {
       return res.status(400).json({ error: "Location is required" });
     }
 
-    // Default to last 90 days if not provided
     if (!end) end = new Date().toISOString().split("T")[0];
     if (!start) {
       const d = new Date(end);
@@ -126,7 +132,6 @@ app.get("/api/weather/:location", async (req, res) => {
     const { latitude, longitude, name, country } = geoData.results[0];
     console.log(`Found ${name}, ${country} at ${latitude}, ${longitude}`);
 
-    // Use the Open-Meteo archive API to fetch historical daily temperatures
     const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min&timezone=auto`;
     const dataResp = await fetch(url);
     const dataJson = await dataResp.json();
@@ -139,12 +144,34 @@ app.get("/api/weather/:location", async (req, res) => {
     const tmax = dataJson.daily.temperature_2m_max || [];
     const tmin = dataJson.daily.temperature_2m_min || [];
 
-    const out = times.map((dt, i) => {
+    const daily = times.map((dt, i) => {
       const max = Number.isFinite(Number(tmax[i])) ? Number(tmax[i]) : null;
       const min = Number.isFinite(Number(tmin[i])) ? Number(tmin[i]) : null;
-      const temp = max !== null && min !== null ? (max + min) / 2 : max ?? min ?? null;
-      return { date: new Date(dt).toISOString(), temperature: temp };
+      const avg = max !== null && min !== null ? (max + min) / 2 : max ?? min ?? null;
+      const prevAvg = i > 0
+        ? (() => {
+            const prevMax = Number.isFinite(Number(tmax[i - 1])) ? Number(tmax[i - 1]) : null;
+            const prevMin = Number.isFinite(Number(tmin[i - 1])) ? Number(tmin[i - 1]) : null;
+            return prevMax !== null && prevMin !== null ? (prevMax + prevMin) / 2 : prevMax ?? prevMin ?? avg;
+          })()
+        : avg;
+      const high = max ?? avg;
+      const low = min ?? avg;
+      return {
+        date: new Date(dt).toISOString(),
+        open: prevAvg,
+        high,
+        low,
+        close: avg,
+        temperature: avg,
+      };
     });
+
+    let out = daily;
+
+    if (interval === "1wk" || interval === "1mo") {
+      out = aggregateWeatherData(daily, interval);
+    }
 
     res.json(out);
 
@@ -153,6 +180,47 @@ app.get("/api/weather/:location", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch weather data" });
   }
 });
+
+function aggregateWeatherData(data, interval) {
+  const groups = {};
+
+  data.forEach((entry) => {
+    const d = new Date(entry.date);
+    let key;
+    
+    if (interval === "1wk") {
+      const firstDayOfYear = new Date(d.getFullYear(), 0, 1);
+      const pastDaysOfYear = (d - firstDayOfYear) / 86400000;
+      const weekNum = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+      key = `${d.getFullYear()}-W${weekNum}`;
+    } else {
+      key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+    }
+
+    if (!groups[key]) {
+      groups[key] = {
+        open: entry.open,
+        high: entry.high,
+        low: entry.low,
+        close: entry.close,
+        latestDate: entry.date,
+      };
+    }
+    groups[key].high = Math.max(groups[key].high, entry.high);
+    groups[key].low = Math.min(groups[key].low, entry.low);
+    groups[key].close = entry.close;
+    groups[key].latestDate = entry.date;
+  });
+
+  return Object.values(groups).map((g) => ({
+    date: new Date(g.latestDate).toISOString(),
+    open: g.open,
+    high: g.high,
+    low: g.low,
+    close: g.close,
+    temperature: g.close,
+  }));
+}
 
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
