@@ -132,7 +132,7 @@ const getCandlestickColumnWidth = (mode, interval) => {
 };
 
 function App() {
-  const [symbol, setSymbol] = useState("");
+  const [symbol, setSymbol] = useState("AAPL");
   const [stockData, setStockData] = useState([]);
   const [maConfigs, setMaConfigs] = useState([buildMaConfig(1)]);
   const [maSeries, setMaSeries] = useState([]);
@@ -143,9 +143,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [timeInterval, setTimeInterval] = useState("1d");
   const [headerDropdown, setHeaderDropdown] = useState("stock");
-  const [weatherLocation, setWeatherLocation] = useState("");
+  const [weatherLocation, setWeatherLocation] = useState("Baguio");
   const [weatherData, setWeatherData] = useState([]);
-  const [earthquakeLocation, setEarthquakeLocation] = useState("");
+  const [earthquakeLocation, setEarthquakeLocation] = useState("Manila");
   const [earthquakeData, setEarthquakeData] = useState([]);
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
@@ -164,6 +164,21 @@ function App() {
   const [showEarthquakeSuggestions, setShowEarthquakeSuggestions] =
     useState(false);
 
+  // Auto-fetch Raw Data with a 500ms delay to prevent excessive API calls
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (headerDropdown === "stock" && symbol.trim()) {
+        fetchStockData();
+      } else if (headerDropdown === "weather" && weatherLocation.trim()) {
+        fetchWeatherData();
+      } else if (headerDropdown === "earthquake") {
+        fetchEarthquakeData();
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [startDate, endDate, timeInterval, headerDropdown]);
+
   useEffect(() => {
     const checkApi = async () => {
       try {
@@ -177,8 +192,6 @@ function App() {
 
     checkApi();
   }, []);
-
-  // Intentionally no auto-apply; wait for user to click Apply.
 
   const searchTimeout = useRef(null);
 
@@ -727,7 +740,7 @@ function App() {
   }, [series, graphType]);
 
   const trendReasonCopy = {
-    price_vs_ma: "Based on price vs MA position",
+    price_vs_ma: "Based on data vs MA position",
     latest_crossover: "Based on latest Golden/Death Cross",
     no_crossover_price_vs_fastest_ma: "No cross yet - using fastest MA",
     no_crossover_no_valid_ma: "No cross yet - insufficient MA data",

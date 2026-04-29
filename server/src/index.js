@@ -20,6 +20,7 @@ app.get("/api/test", (_request, response) => {
   response.json({ message: "API is working" });
 });
 
+// For search suggestions
 app.get("/api/stock/search/:query", async (req, res) => {
   try {
     const { query } = req.params;
@@ -45,6 +46,7 @@ app.get("/api/stock/search/:query", async (req, res) => {
   }
 });
 
+// For getting stock data
 app.get("/api/stock/:symbol", async (req, res) => {
   try {
     const { symbol } = req.params;
@@ -73,6 +75,7 @@ app.get("/api/stock/:symbol", async (req, res) => {
       return res.status(404).json({ error: "No stock data found" });
     }
 
+    // high and low for candle stick chart
     const dataArray = result
       .filter((entry) => entry?.date)
       .map((entry) => ({
@@ -153,6 +156,7 @@ app.post("/api/classify-trend", (req, res) => {
   }
 });
 
+// For location search suggests
 app.get("/api/weather/search/:query", async (req, res) => {
   try {
     const { query } = req.params;
@@ -182,6 +186,7 @@ app.get("/api/weather/search/:query", async (req, res) => {
   }
 });
 
+// To get data for weather location
 app.get("/api/weather/:location", async (req, res) => {
   try {
     const { location } = req.params;
@@ -228,12 +233,17 @@ app.get("/api/weather/:location", async (req, res) => {
     const daily = times.map((dt, i) => {
       const max = Number.isFinite(Number(tmax[i])) ? Number(tmax[i]) : null;
       const min = Number.isFinite(Number(tmin[i])) ? Number(tmin[i]) : null;
-      const avg = max !== null && min !== null ? (max + min) / 2 : (max ?? min ?? null);
+      const avg =
+        max !== null && min !== null ? (max + min) / 2 : (max ?? min ?? null);
       const prevAvg =
         i > 0
           ? (() => {
-              const prevMax = Number.isFinite(Number(tmax[i - 1])) ? Number(tmax[i - 1]) : null;
-              const prevMin = Number.isFinite(Number(tmin[i - 1])) ? Number(tmin[i - 1]) : null;
+              const prevMax = Number.isFinite(Number(tmax[i - 1]))
+                ? Number(tmax[i - 1])
+                : null;
+              const prevMin = Number.isFinite(Number(tmin[i - 1]))
+                ? Number(tmin[i - 1])
+                : null;
               return prevMax !== null && prevMin !== null
                 ? (prevMax + prevMin) / 2
                 : (prevMax ?? prevMin ?? avg);
@@ -241,6 +251,8 @@ app.get("/api/weather/:location", async (req, res) => {
           : avg;
       const high = max ?? avg;
       const low = min ?? avg;
+
+      // open high low close for candle stick chart
       return {
         date: new Date(dt).toISOString(),
         open: prevAvg,
@@ -264,6 +276,7 @@ app.get("/api/weather/:location", async (req, res) => {
   }
 });
 
+// Earthquake search suggest
 app.get("/api/earthquake/search/:query", async (req, res) => {
   try {
     const { query } = req.params;
@@ -293,13 +306,14 @@ app.get("/api/earthquake/search/:query", async (req, res) => {
   }
 });
 
+// endpoint for getting earthquake details
 app.get("/api/earthquake", async (req, res) => {
   try {
     const {
       start,
       end,
       interval,
-      minmagnitude = 4.5,
+      minmagnitude = 2.5,
       maxradiuskm = 500,
       location,
     } = req.query;
@@ -370,6 +384,7 @@ app.get("/api/earthquake", async (req, res) => {
   }
 });
 
+// helper function for weather since it does daily information
 function aggregateWeatherData(data, interval) {
   const groups = {};
 
@@ -413,6 +428,7 @@ function aggregateWeatherData(data, interval) {
   }));
 }
 
+// helper function for earthquake since it does daily information too
 function aggregateEarthquakeData(data, interval) {
   const groups = {};
 
