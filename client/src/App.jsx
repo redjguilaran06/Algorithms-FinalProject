@@ -156,6 +156,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [timeInterval, setTimeInterval] = useState("1d");
   const [headerDropdown, setHeaderDropdown] = useState("stock");
+  const [weatherLocation, setWeatherLocation] = useState("");
+  const [weatherData, setWeatherData] = useState([]);
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setFullYear(date.getFullYear() - 1);
@@ -228,6 +230,48 @@ function App() {
     }
   };
 
+  const fetchWeatherData = async (overrides = {}) => {
+    const nextLocation = overrides.location ?? weatherLocation;
+    const nextStart = overrides.startDate ?? startDate;
+    const nextEnd = overrides.endDate ?? endDate;
+
+    if (!nextLocation.trim()) {
+      setErrorMessage("Location is required");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setErrorMessage("");
+      const response = await fetch(
+        `http://localhost:5001/api/weather/${encodeURIComponent(nextLocation.trim())}?start=${nextStart}&end=${nextEnd}`
+      );
+      if (!response.ok) {
+        const errorResult = await response.json().catch(() => ({}));
+        throw new Error(errorResult.error || `Server responded ${response.status}`);
+      }
+      const result = await response.json();
+
+      // Expect result to be array of { date, temperature }
+      if (Array.isArray(result)) {
+        const cleaned = [...result].filter((entry) => entry?.date !== undefined && entry?.temperature !== undefined);
+        setWeatherData(cleaned);
+      } else {
+        console.warn("Unexpected weather data format", result);
+        setWeatherData([]);
+      }
+
+      setMaSeries([]);
+      setCrossovers([]);
+      setTrendInfo(null);
+    } catch (error) {
+      console.error("Error fetching weather data:", error);
+      setErrorMessage(error.message || "Failed to fetch weather data");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSymbolKeyPress = (event) => {
     if (event.key === "Enter" && symbol.trim()) {
       fetchStockData({ symbol });
@@ -239,6 +283,12 @@ function App() {
     setTimeInterval(nextInterval);
     if (symbol.trim()) {
       fetchStockData({ interval: nextInterval });
+    }
+  };
+
+  const handleLocationKeyPress = (event) => {
+    if (event.key === "Enter" && weatherLocation.trim()) {
+      fetchWeatherData({ location: weatherLocation });
     }
   };
 
@@ -261,12 +311,16 @@ function App() {
 
   const handleApply = async () => {
     try {
-      if (stockData.length === 0) {
-        setErrorMessage("Please fetch stock data first");
+      const activeData = headerDropdown === "stock" ? stockData : headerDropdown === "weather" ? weatherData : [];
+      if (!activeData || activeData.length === 0) {
+        setErrorMessage("Please fetch data first for the selected mode");
         return;
       }
 
-      const prices = stockData.map((d) => Number(d.close));
+      const prices = activeData.map((d) => {
+        return headerDropdown === "stock" ? Number(d.close) : Number(d.temperature);
+      });
+
       setLoading(true);
 
       const computed = await Promise.all(
@@ -303,13 +357,13 @@ function App() {
         const second = computed[1];
         const shortSeries = first.period <= second.period ? first : second;
         const longSeries = first.period <= second.period ? second : first;
-        const dates = stockData.map((d) => d.date);
+        const dates = activeData.map((d) => d.date);
         setCrossovers(calculateCrossovers(shortSeries.values, longSeries.values, dates, prices));
       } else {
         setCrossovers([]);
       }
 
-      setTrendInfo(buildTrendInfo(prices, computed[0]?.values, stockData.map((d) => d.date)));
+      setTrendInfo(buildTrendInfo(prices, computed[0]?.values, activeData.map((d) => d.date)));
     } catch (error) {
       console.error("Error computing MA:", error);
       setErrorMessage(error.message || "Failed to compute moving average");
@@ -319,14 +373,15 @@ function App() {
   };
 
   const priceSeries = useMemo(() => {
-    if (!stockData.length) return [];
+    const activeData = headerDropdown === "stock" ? stockData : headerDropdown === "weather" ? weatherData : [];
+    if (!activeData.length) return [];
 
-    if (graphType === "candlestick") {
+    if (headerDropdown === "stock" && graphType === "candlestick") {
       return [
         {
           name: "Candles",
           type: "candlestick",
-          data: stockData.map((d) => ({
+          data: activeData.map((d) => ({
             x: new Date(d.date).getTime(),
             y: [Number(d.open), Number(d.high), Number(d.low), Number(d.close)],
           })),
@@ -336,27 +391,28 @@ function App() {
 
     return [
       {
-        name: "Price",
+        name: headerDropdown === "stock" ? "Price" : "Temperature",
         type: "line",
-        data: stockData.map((d) => ({
+        data: activeData.map((d) => ({
           x: new Date(d.date).getTime(),
-          y: Number(d.close),
+          y: headerDropdown === "stock" ? Number(d.close) : Number(d.temperature),
         })),
       },
     ];
-  }, [stockData, graphType]);
+  }, [stockData, weatherData, graphType, headerDropdown]);
 
   const maLineSeries = useMemo(() => {
-    if (!maSeries.length || !stockData.length) return [];
+    const sourceData = headerDropdown === "stock" ? stockData : headerDropdown === "weather" ? weatherData : [];
+    if (!maSeries.length || !sourceData.length) return [];
     return maSeries.map((series) => ({
       name: `${series.type} (${series.period})`,
       type: "line",
       data: series.values.map((val, idx) => ({
-        x: new Date(stockData[idx].date).getTime(),
+        x: new Date(sourceData[idx].date).getTime(),
         y: val,
       })),
     }));
-  }, [maSeries, stockData]);
+  }, [maSeries, stockData, weatherData, headerDropdown]);
 
   const goldenCrossPoints = useMemo(
     () =>
@@ -481,16 +537,19 @@ function App() {
           </div>
 
           {errorMessage ? <div className="chart-placeholder">{errorMessage}</div> : null}
-          {!errorMessage &&
-            (stockData.length === 0 ? (
-              <div className="chart-placeholder">Chart will display here</div>
-            ) : (
+          {!errorMessage && (() => {
+            const activeData = headerDropdown === "stock" ? stockData : headerDropdown === "weather" ? weatherData : [];
+            if (!activeData || activeData.length === 0) {
+              return <div className="chart-placeholder">Chart will display here</div>;
+            }
+
+            return (
               <div className="chart-wrapper">
                 {loading ? <div className="chart-overlay">Loading...</div> : null}
                 <Chart
                   options={{
                     chart: {
-                      id: "stock-chart",
+                      id: "data-chart",
                       toolbar: { show: true },
                       background: "transparent",
                       foreColor: "#d1d5db",
@@ -506,48 +565,23 @@ function App() {
                       type: "datetime",
                       axisBorder: { color: "rgba(148, 163, 184, 0.18)" },
                       axisTicks: { color: "rgba(148, 163, 184, 0.18)" },
-                      labels: {
-                        style: { colors: "#94a3b8" },
-                      },
+                      labels: { style: { colors: "#94a3b8" } },
                     },
-                    stroke: {
-                      curve: "smooth",
-                      width: strokeWidths,
-                    },
-                    tooltip: {
-                      theme: "dark",
-                      x: { format: "yyyy-MM-dd" },
-                      shared: true,
-                    },
-                    yaxis: {
-                      decimalsInFloat: 2,
-                      labels: {
-                        style: { colors: "#94a3b8" },
-                      },
-                    },
+                    stroke: { curve: "smooth", width: strokeWidths },
+                    tooltip: { theme: "dark", x: { format: "yyyy-MM-dd" }, shared: true },
+                    yaxis: { decimalsInFloat: 2, labels: { style: { colors: "#94a3b8" } } },
                     colors: chartColors,
-                    markers: {
-                      size: markerSizes,
-                      strokeWidth: 2,
-                      strokeColors: "#0f172a",
-                    },
-                    plotOptions: {
-                      candlestick: {
-                        colors: { upward: "#22C55E", downward: "#EF4444" },
-                      },
-                    },
-                    legend: {
-                      show: true,
-                      position: "top",
-                      labels: { colors: "#d1d5db" },
-                    },
+                    markers: { size: markerSizes, strokeWidth: 2, strokeColors: "#0f172a" },
+                    plotOptions: { candlestick: { colors: { upward: "#22C55E", downward: "#EF4444" } } },
+                    legend: { show: true, position: "top", labels: { colors: "#d1d5db" } },
                   }}
                   series={series}
                   type="line"
                   height={400}
                 />
               </div>
-            ))}
+            );
+          })()}
         </section>
 
         <section className="controls-panel">
@@ -565,15 +599,36 @@ function App() {
           </div>
 
           <div className="control-group">
-            <label htmlFor="stock-company">Search for a Company by Symbol</label>
-            <input
-              id="stock-company"
-              type="text"
-              value={symbol}
-              onChange={(event) => setSymbol(event.target.value.toUpperCase())}
-              onKeyPress={handleSymbolKeyPress}
-              placeholder="Enter symbol and press Enter"
-            />
+            {headerDropdown === "stock" ? (
+              <>
+                <label htmlFor="stock-company">Search for a Company by Symbol</label>
+                <input
+                  id="stock-company"
+                  type="text"
+                  value={symbol}
+                  onChange={(event) => setSymbol(event.target.value.toUpperCase())}
+                  onKeyPress={handleSymbolKeyPress}
+                  placeholder="Enter symbol and press Enter"
+                />
+              </>
+            ) : headerDropdown === "weather" ? (
+              <>
+                <label htmlFor="weather-location">Search Location</label>
+                <input
+                  id="weather-location"
+                  type="text"
+                  value={weatherLocation}
+                  onChange={(e) => setWeatherLocation(e.target.value)}
+                  onKeyPress={handleLocationKeyPress}
+                  placeholder="Enter city name and press Enter"
+                />
+              </>
+            ) : (
+              <>
+                <label>Mode</label>
+                <div className="control-note">Select a mode from the dropdown</div>
+              </>
+            )}
           </div>
 
           <div className="date-row">

@@ -102,15 +102,23 @@ app.post("/api/compute-ma", (req, res) => {
 app.get("/api/weather/:location", async (req, res) => {
   try {
     const { location } = req.params;
-    const { start, end, interval } = req.query;
-    
+    let { start, end } = req.query;
+
     if (!location || !location.trim()) {
       return res.status(400).json({ error: "Location is required" });
     }
 
-    const geoResponse = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${location}&count=1`);
+    // Default to last 90 days if not provided
+    if (!end) end = new Date().toISOString().split("T")[0];
+    if (!start) {
+      const d = new Date(end);
+      d.setDate(d.getDate() - 90);
+      start = d.toISOString().split("T")[0];
+    }
+
+    const geoResponse = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1`);
     const geoData = await geoResponse.json();
-    
+
     if (!geoData.results || geoData.results.length === 0) {
       return res.status(404).json({ error: "City not found" });
     }
@@ -118,26 +126,27 @@ app.get("/api/weather/:location", async (req, res) => {
     const { latitude, longitude, name, country } = geoData.results[0];
     console.log(`Found ${name}, ${country} at ${latitude}, ${longitude}`);
 
-    const params = {
-      latitude,
-      longitude,
-      current: "temperature_2m,weather_code",
-      timezone: "auto",
-    };
+    // Use the Open-Meteo archive API to fetch historical daily temperatures
+    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min&timezone=auto`;
+    const dataResp = await fetch(url);
+    const dataJson = await dataResp.json();
 
-    const responses = await fetchWeatherApi("https://api.open-meteo.com/v1/forecast", params);
-    const response = responses[0];
-    const current = response.current();
+    if (!dataJson || !dataJson.daily || !Array.isArray(dataJson.daily.time)) {
+      return res.status(500).json({ error: "Failed to fetch historical weather data" });
+    }
 
-    const weatherData = {
-      location: { name, country, latitude, longitude },
-      current: {
-        temperature: current.variables(0).value(),
-        weatherCode: current.variables(1).value(),
-      },
-    };
+    const times = dataJson.daily.time || [];
+    const tmax = dataJson.daily.temperature_2m_max || [];
+    const tmin = dataJson.daily.temperature_2m_min || [];
 
-    res.json(weatherData);
+    const out = times.map((dt, i) => {
+      const max = Number.isFinite(Number(tmax[i])) ? Number(tmax[i]) : null;
+      const min = Number.isFinite(Number(tmin[i])) ? Number(tmin[i]) : null;
+      const temp = max !== null && min !== null ? (max + min) / 2 : max ?? min ?? null;
+      return { date: new Date(dt).toISOString(), temperature: temp };
+    });
+
+    res.json(out);
 
   } catch (error) {
     console.error("Weather data error:", error);
