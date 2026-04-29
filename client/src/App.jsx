@@ -162,6 +162,13 @@ function App() {
     checkApi();
   }, []);
 
+  useEffect(() => {
+    const activeData = headerDropdown === "stock" ? stockData : headerDropdown === "weather" ? weatherData : [];
+    if (maSeries.length > 0 && activeData.length > 0) {
+      handleApply();
+    }
+  }, [maConfigs, headerDropdown, stockData, weatherData]);
+
   const searchTimeout = useRef(null);
 
   const handleSymbolChange = (e) => {
@@ -366,7 +373,7 @@ const handleLocationSuggestionClick = (suggestion) => {
   };
 
   const removeMaConfig = (id) => {
-    setMaConfigs((prev) => (prev.length > 1 ? prev.filter((config) => config.id !== id) : prev));
+    setMaConfigs((prev) => prev.filter((config) => config.id !== id));
   };
 
   const handleApply = async () => {
@@ -430,6 +437,7 @@ const handleLocationSuggestionClick = (suggestion) => {
           maArrays: computed.map((entry) => entry.values),
           periods: computed.map((entry) => entry.period),
           crossovers: nextCrossovers,
+          mode: headerDropdown,
         }),
       });
 
@@ -884,7 +892,6 @@ const handleLocationSuggestionClick = (suggestion) => {
                 type="button"
                 className="ma-remove"
                 onClick={() => removeMaConfig(config.id)}
-                disabled={maConfigs.length === 1}
               >
                 Remove
               </button>

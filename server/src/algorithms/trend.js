@@ -12,6 +12,30 @@ const buildConsolidation = (reason) => ({
   perMa: [],
 });
 
+const resolveGapTrend = (gap, invertSignal) => {
+  if (invertSignal) {
+    return gap > CONSOLIDATION_BAND
+      ? "DOWNTREND"
+      : gap < -CONSOLIDATION_BAND
+        ? "UPTREND"
+        : "CONSOLIDATION";
+  }
+
+  return gap > CONSOLIDATION_BAND
+    ? "UPTREND"
+    : gap < -CONSOLIDATION_BAND
+      ? "DOWNTREND"
+      : "CONSOLIDATION";
+};
+
+const resolveCrossoverTrend = (type, invertSignal) => {
+  if (invertSignal) {
+    return type === "GOLDEN_CROSS" ? "DOWNTREND" : "UPTREND";
+  }
+
+  return type === "GOLDEN_CROSS" ? "UPTREND" : "DOWNTREND";
+};
+
 /**
  * Classify market trend based on prices, moving averages, and crossovers.
  * @param {number[]} prices - Closing prices aligned with MA arrays.
@@ -19,6 +43,7 @@ const buildConsolidation = (reason) => ({
  * @param {number[]} periods - MA periods aligned with maArrays.
  * @param {Array<{ index: number, date: string, type: "GOLDEN_CROSS"|"DEATH_CROSS" }>} crossovers
  *   - Detected crossover events (oldest to newest).
+ * @param {string} mode - Active data mode (stock or weather).
  * @returns {{
  *   consensus: "UPTREND"|"DOWNTREND"|"CONSOLIDATION",
  *   reason: "price_vs_ma"|"latest_crossover"|"no_crossover_price_vs_fastest_ma"|"no_crossover_no_valid_ma"|"insufficient_data"|"ma_zero_division"|"no_valid_ma_values",
@@ -32,7 +57,8 @@ const buildConsolidation = (reason) => ({
  *   }>
  * }}
  */
-export function classifyTrend(prices, maArrays, periods, crossovers) {
+export function classifyTrend(prices, maArrays, periods, crossovers, mode = "stock") {
+  const invertSignal = mode !== "weather";
   if (!Array.isArray(prices) || prices.length < 2 || !Array.isArray(maArrays) || maArrays.length === 0) {
     return buildConsolidation("insufficient_data");
   }
@@ -50,11 +76,7 @@ export function classifyTrend(prices, maArrays, periods, crossovers) {
     }
 
     const gap = (priceLast - maLast) / maLast;
-    const consensus = gap > CONSOLIDATION_BAND
-      ? "DOWNTREND"
-      : gap < -CONSOLIDATION_BAND
-        ? "UPTREND"
-        : "CONSOLIDATION";
+    const consensus = resolveGapTrend(gap, invertSignal);
 
     return {
       consensus,
@@ -77,7 +99,7 @@ export function classifyTrend(prices, maArrays, periods, crossovers) {
 
   if (Array.isArray(crossovers) && crossovers.length > 0) {
     const latestCross = crossovers[crossovers.length - 1];
-    consensus = latestCross.type === "GOLDEN_CROSS" ? "DOWNTREND" : "UPTREND";
+    consensus = resolveCrossoverTrend(latestCross.type, invertSignal);
     reason = "latest_crossover";
   } else {
     const periodList = Array.isArray(periods) ? periods : [];
@@ -95,11 +117,7 @@ export function classifyTrend(prices, maArrays, periods, crossovers) {
     } else {
       const priceLast = prices[prices.length - 1];
       const gap = (priceLast - maLast) / maLast;
-      consensus = gap > CONSOLIDATION_BAND
-        ? "DOWNTREND"
-        : gap < -CONSOLIDATION_BAND
-          ? "UPTREND"
-          : "CONSOLIDATION";
+      consensus = resolveGapTrend(gap, invertSignal);
       reason = "no_crossover_price_vs_fastest_ma";
     }
   }
@@ -120,11 +138,7 @@ export function classifyTrend(prices, maArrays, periods, crossovers) {
     }
 
     const gap = (priceLast - maLast) / maLast;
-    const state = gap > CONSOLIDATION_BAND
-      ? "DOWNTREND"
-      : gap < -CONSOLIDATION_BAND
-        ? "UPTREND"
-        : "CONSOLIDATION";
+    const state = resolveGapTrend(gap, invertSignal);
 
     return {
       index,
