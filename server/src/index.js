@@ -137,9 +137,9 @@ app.post("/api/compute-ma", (req, res) => {
 
 app.post("/api/classify-trend", (req, res) => {
   try {
-    const { prices, maArrays, periods, crossovers, mode } = req.body;
+    const { prices, maArrays, periods, crossovers } = req.body;
 
-    const trendResult = classifyTrend(prices, maArrays, periods, crossovers, mode);
+    const trendResult = classifyTrend(prices, maArrays, periods, crossovers);
 
     res.json({
       trend: trendResult.consensus,

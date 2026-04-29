@@ -57,8 +57,8 @@ const resolveCrossoverTrend = (type, invertSignal) => {
  *   }>
  * }}
  */
-export function classifyTrend(prices, maArrays, periods, crossovers, mode = "stock") {
-  const invertSignal = mode === "stock";
+export function classifyTrend(prices, maArrays, periods, crossovers) {
+  const invertSignal = false;
   if (!Array.isArray(prices) || prices.length < 2 || !Array.isArray(maArrays) || maArrays.length === 0) {
     return buildConsolidation("insufficient_data");
   }

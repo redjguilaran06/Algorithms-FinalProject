@@ -178,19 +178,7 @@ function App() {
     checkApi();
   }, []);
 
-  useEffect(() => {
-    const activeData =
-      headerDropdown === "stock"
-        ? stockData
-        : headerDropdown === "weather"
-          ? weatherData
-          : headerDropdown === "earthquake"
-            ? earthquakeData
-            : [];
-    if (maSeries.length > 0 && activeData.length > 0) {
-      handleApply();
-    }
-  }, [maConfigs, headerDropdown, stockData, weatherData, earthquakeData]);
+  // Intentionally no auto-apply; wait for user to click Apply.
 
   const searchTimeout = useRef(null);
 
@@ -569,7 +557,6 @@ function App() {
             maArrays: computed.map((entry) => entry.values),
             periods: computed.map((entry) => entry.period),
             crossovers: nextCrossovers,
-            mode: headerDropdown,
           }),
         },
       );
