@@ -1,4 +1,16 @@
 import { useEffect, useMemo, useState, useRef } from "react";
+import {
+  TrendingUp,
+  CloudSun,
+  Activity,
+  Calendar,
+  Settings,
+  Plus,
+  Trash2,
+  Search,
+  BarChart3,
+  Clock,
+} from "lucide-react";
 import Chart from "react-apexcharts";
 
 const MA_COLORS = ["#F0B90B", "#2BD9FE", "#3B82F6", "#22C55E", "#F97316"];
@@ -793,7 +805,7 @@ function App() {
       <header className="dashboard-header">
         <div className="header-brand">
           <div className="brand-mark" aria-hidden="true">
-            B
+            T
           </div>
           <div className="header-copy">
             <p className="header-eyebrow">Moving Average Algorithm </p>
@@ -922,7 +934,19 @@ function App() {
 
         <section className="controls-panel">
           <div className="controls-header">
-            <h2>Controls</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              {headerDropdown === "stock" && (
+                <TrendingUp size={20} className="text-blue-500" />
+              )}
+              {headerDropdown === "weather" && (
+                <CloudSun size={20} className="text-yellow-500" />
+              )}
+              {headerDropdown === "earthquake" && (
+                <Activity size={20} className="text-red-500" />
+              )}
+              <h2>Controls</h2>
+            </div>
+
             <select
               className="control-dropdown"
               value={headerDropdown}
@@ -937,7 +961,12 @@ function App() {
           <div className="control-group">
             {headerDropdown === "stock" ? (
               <>
-                <label htmlFor="stock-company">Search for a Company</label>
+                <label
+                  htmlFor="stock-company"
+                  style={{ display: "flex", alignItems: "center", gap: "6px" }}
+                >
+                  <Search size={16} /> Search for a Company
+                </label>
                 <div style={{ position: "relative" }}>
                   <input
                     id="stock-company"
@@ -973,7 +1002,13 @@ function App() {
               </>
             ) : headerDropdown === "weather" ? (
               <>
-                <label htmlFor="weather-location">Search Location</label>
+                <label
+                  htmlFor="weather-location"
+                  style={{ display: "flex", alignItems: "center", gap: "6px" }}
+                >
+                  <Search size={16} />
+                  Search Location
+                </label>
                 <div style={{ position: "relative" }}>
                   <input
                     id="weather-location"
@@ -1010,7 +1045,11 @@ function App() {
               </>
             ) : headerDropdown === "earthquake" ? (
               <>
-                <label htmlFor="earthquake-location">
+                <label
+                  htmlFor="earthquake-location"
+                  style={{ display: "flex", alignItems: "center", gap: "6px" }}
+                >
+                  <Search size={16} />
                   Search Location (optional)
                 </label>
                 <div style={{ position: "relative" }}>
@@ -1061,7 +1100,12 @@ function App() {
 
           <div className="date-row">
             <div className="control-group">
-              <label htmlFor="start-date">Start Date</label>
+              <label
+                htmlFor="start-date"
+                style={{ display: "flex", alignItems: "center", gap: "4px" }}
+              >
+                <Calendar size={14} /> Start Date
+              </label>
               <input
                 id="start-date"
                 type="date"
@@ -1071,7 +1115,12 @@ function App() {
             </div>
 
             <div className="control-group">
-              <label htmlFor="end-date">End Date</label>
+              <label
+                htmlFor="end-date"
+                style={{ display: "flex", alignItems: "center", gap: "4px" }}
+              >
+                <Calendar size={14} /> End Date
+              </label>
               <input
                 id="end-date"
                 type="date"
@@ -1082,7 +1131,12 @@ function App() {
           </div>
 
           <div className="control-group">
-            <label htmlFor="time-interval">Time Interval</label>
+            <label
+              htmlFor="time-interval"
+              style={{ display: "flex", alignItems: "center", gap: "6px" }}
+            >
+              <Clock size={16} /> Time Interval
+            </label>
             <select
               id="time-interval"
               value={timeInterval}
@@ -1095,7 +1149,13 @@ function App() {
           </div>
 
           <div className="control-group">
-            <label htmlFor="chart-type">Chart Type</label>
+            <label>
+              <BarChart3
+                size={20}
+                style={{ marginRight: "8px", verticalAlign: "middle" }}
+              />
+              Chart Type
+            </label>
             <div className="toggle-group">
               <button
                 type="button"
@@ -1120,7 +1180,7 @@ function App() {
               <p className="ma-subtitle">Add or remove stacked overlays.</p>
             </div>
             <button type="button" className="ma-add" onClick={addMaConfig}>
-              + Add MA
+              <Plus size={16} /> Add MA
             </button>
           </div>
 
@@ -1133,9 +1193,15 @@ function App() {
                   updateMaConfig(config.id, { type: event.target.value })
                 }
               >
-                <option value="SMA">SMA</option>
-                <option value="EMA">EMA</option>
-                <option value="WMA">WMA</option>
+                <option value="SMA" className="ma-option">
+                  SMA
+                </option>
+                <option value="EMA" className="ma-option">
+                  EMA
+                </option>
+                <option value="WMA" className="ma-option">
+                  WMA
+                </option>
               </select>
               <input
                 type="number"
@@ -1150,7 +1216,7 @@ function App() {
                 className="ma-remove"
                 onClick={() => removeMaConfig(config.id)}
               >
-                Remove
+                <Trash2 size={16} />
               </button>
             </div>
           ))}
