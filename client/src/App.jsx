@@ -9,94 +9,29 @@ const SIGNAL_COLORS = {
 
 const buildMaConfig = (id) => ({ id, type: "SMA", period: 14 });
 
-const getLastNonNull = (values) => {
-  if (!Array.isArray(values)) return null;
-  for (let i = values.length - 1; i >= 0; i -= 1) {
-    if (values[i] !== null && values[i] !== undefined) {
-      return { index: i, value: values[i] };
+const isValidNumber = (value) => Number.isFinite(value);
+
+const extendTrailingValues = (values, targetLength) => {
+  if (!Array.isArray(values)) return values;
+
+  const result = [...values];
+  let lastValue = null;
+
+  for (let i = 0; i < result.length; i += 1) {
+    if (isValidNumber(result[i])) {
+      lastValue = result[i];
+    } else if (lastValue !== null) {
+      result[i] = lastValue;
     }
   }
-  return null;
-};
 
-const collectLastValid = (values, count) => {
-  const collected = [];
-  if (!Array.isArray(values)) return collected;
-  for (let i = values.length - 1; i >= 0 && collected.length < count; i -= 1) {
-    if (values[i] !== null && values[i] !== undefined) {
-      collected.push(values[i]);
+  if (lastValue !== null) {
+    for (let i = result.length; i < targetLength; i += 1) {
+      result.push(lastValue);
     }
   }
-  return collected.reverse();
-};
 
-const classifyTrend = (prices, maValues, threshold = 0.001) => {
-  if (!Array.isArray(prices) || !Array.isArray(maValues) || prices.length === 0) {
-    return "SIDEWAYS";
-  }
-
-  const validValues = collectLastValid(maValues, 10);
-  if (validValues.length < 10) return "SIDEWAYS";
-
-  const first = validValues[0];
-  const last = validValues[validValues.length - 1];
-  if (first === 0) return "SIDEWAYS";
-
-  const slope = (last - first) / first;
-  const priceLast = prices[prices.length - 1];
-  const maLast = last;
-
-  if (slope > threshold && priceLast > maLast) return "UPTREND";
-  if (slope < -threshold && priceLast < maLast) return "DOWNTREND";
-  return "SIDEWAYS";
-};
-
-const findLastPriceCross = (prices, maValues) => {
-  if (!Array.isArray(prices) || !Array.isArray(maValues)) return null;
-  for (let i = prices.length - 1; i >= 1; i -= 1) {
-    const maNow = maValues[i];
-    const maPrev = maValues[i - 1];
-    if (maNow === null || maNow === undefined || maPrev === null || maPrev === undefined) {
-      continue;
-    }
-    const priceNow = prices[i];
-    const pricePrev = prices[i - 1];
-    const crossedUp = pricePrev <= maPrev && priceNow > maNow;
-    const crossedDown = pricePrev >= maPrev && priceNow < maNow;
-    if (crossedUp || crossedDown) {
-      return i;
-    }
-  }
-  return null;
-};
-
-const buildTrendInfo = (prices, maValues, dates) => {
-  if (!Array.isArray(prices) || !Array.isArray(maValues) || prices.length === 0) {
-    return null;
-  }
-
-  const trend = classifyTrend(prices, maValues);
-  const lastPrice = prices[prices.length - 1];
-  const lastMa = getLastNonNull(maValues)?.value ?? null;
-  const crossIndex = findLastPriceCross(prices, maValues);
-
-  let percentChange = null;
-  let sinceDate = null;
-  if (crossIndex !== null) {
-    const base = prices[crossIndex];
-    if (base) {
-      percentChange = ((lastPrice - base) / base) * 100;
-    }
-    sinceDate = dates?.[crossIndex] ?? null;
-  }
-
-  return {
-    trend,
-    lastPrice,
-    lastMa,
-    percentChange,
-    sinceDate,
-  };
+  return result;
 };
 
 const calculateCrossovers = (shortMa, longMa, dates, prices) => {
@@ -474,19 +409,37 @@ const handleLocationSuggestionClick = (suggestion) => {
       );
 
       setMaSeries(computed);
+      const dates = activeData.map((d) => d.date);
+      let nextCrossovers = [];
 
       if (computed.length >= 2) {
         const first = computed[0];
         const second = computed[1];
         const shortSeries = first.period <= second.period ? first : second;
         const longSeries = first.period <= second.period ? second : first;
-        const dates = activeData.map((d) => d.date);
-        setCrossovers(calculateCrossovers(shortSeries.values, longSeries.values, dates, prices));
-      } else {
-        setCrossovers([]);
+        nextCrossovers = calculateCrossovers(shortSeries.values, longSeries.values, dates, prices);
       }
 
-      setTrendInfo(buildTrendInfo(prices, computed[0]?.values, activeData.map((d) => d.date)));
+      setCrossovers(nextCrossovers);
+
+      const trendResponse = await fetch("http://localhost:5001/api/classify-trend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prices,
+          maArrays: computed.map((entry) => entry.values),
+          periods: computed.map((entry) => entry.period),
+          crossovers: nextCrossovers,
+        }),
+      });
+
+      if (!trendResponse.ok) {
+        const errorResult = await trendResponse.json().catch(() => ({}));
+        throw new Error(errorResult.error || `Server responded ${trendResponse.status}`);
+      }
+
+      const trendResult = await trendResponse.json();
+      setTrendInfo(trendResult);
     } catch (error) {
       console.error("Error computing MA:", error);
       setErrorMessage(error.message || "Failed to compute moving average");
@@ -527,10 +480,12 @@ const handleLocationSuggestionClick = (suggestion) => {
     return maSeries.map((series) => ({
       name: `${series.type} (${series.period})`,
       type: "line",
-      data: series.values.map((val, idx) => ({
-        x: new Date(sourceData[idx].date).getTime(),
-        y: val,
-      })),
+      data: extendTrailingValues(series.values, sourceData.length)
+        .slice(0, sourceData.length)
+        .map((val, idx) => ({
+          x: new Date(sourceData[idx].date).getTime(),
+          y: val,
+        })),
     }));
   }, [maSeries, stockData, weatherData, headerDropdown]);
 
@@ -618,12 +573,28 @@ const handleLocationSuggestionClick = (suggestion) => {
     return widths;
   }, [series, graphType]);
 
-  const trendLabel = trendInfo?.trend || "SIDEWAYS";
-  const trendMeta = trendInfo?.percentChange !== null && trendInfo?.percentChange !== undefined
-    ? `${trendInfo.percentChange >= 0 ? "+" : ""}${trendInfo.percentChange.toFixed(2)}% since ${
-        trendInfo.sinceDate ? new Date(trendInfo.sinceDate).toLocaleDateString() : "last cross"
-      }`
-    : "Insufficient MA history";
+  const trendReasonCopy = {
+    price_vs_ma: "Based on price vs MA position",
+    latest_crossover: "Based on latest Golden/Death Cross",
+    no_crossover_price_vs_fastest_ma: "No cross yet - using fastest MA",
+    no_crossover_no_valid_ma: "No cross yet - insufficient MA data",
+    insufficient_data: "Not enough data to classify",
+    ma_zero_division: "Not enough data to classify",
+    no_valid_ma_values: "Not enough data to classify",
+  };
+
+  const trendLabel = trendInfo?.trend ?? "CONSOLIDATION";
+  const trendLabelDisplay = trendLabel === "UPTREND"
+    ? "▲ Uptrend"
+    : trendLabel === "DOWNTREND"
+      ? "▼ Downtrend"
+      : "→ Consolidation";
+  const trendMeta = trendInfo?.trend_reason
+    ? trendReasonCopy[trendInfo.trend_reason] || "Not enough data to classify"
+    : "Not enough data to classify";
+  const showDisagreement = Boolean(
+    trendInfo?.trend_detail?.length > 1 && trendInfo?.trend_agree === false
+  );
 
   const formatChartValue = (value) => {
     const num = Number(value);
@@ -655,13 +626,12 @@ const handleLocationSuggestionClick = (suggestion) => {
           </div>
           <div className="header-copy">
             <p className="header-eyebrow">Moving Average Algorithm </p>
-            <h1>Trend Analyzer</h1>
+            <h1>TrendView</h1>
           </div>
         </div>
 
         <div className="header-status">
           <span className="status-dot" aria-hidden="true" />
-          Live market feed
         </div>
       </header>
 
@@ -674,8 +644,11 @@ const handleLocationSuggestionClick = (suggestion) => {
             </div>
             <div className={`trend-card trend-${trendLabel.toLowerCase()}`}>
               <span className="trend-title">Current Trend</span>
-              <span className="trend-value">{trendLabel.replace("_", " ")}</span>
+              <span className="trend-value">{trendLabelDisplay}</span>
               <span className="trend-meta">{trendMeta}</span>
+              {showDisagreement ? (
+                <span className="trend-warning">⚠ MAs disagree</span>
+              ) : null}
             </div>
           </div>
 
@@ -919,7 +892,7 @@ const handleLocationSuggestionClick = (suggestion) => {
           ))}
 
           <button type="button" className="apply-button" onClick={handleApply}>
-            Apply MAs
+            Apply
           </button>
         </section>
       </main>
