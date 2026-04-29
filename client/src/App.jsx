@@ -9,29 +9,107 @@ const SIGNAL_COLORS = {
 
 const buildMaConfig = (id) => ({ id, type: "SMA", period: 14 });
 
-const isValidNumber = (value) => Number.isFinite(value);
-
-const extendTrailingValues = (values, targetLength) => {
-  if (!Array.isArray(values)) return values;
-
-  const result = [...values];
-  let lastValue = null;
-
-  for (let i = 0; i < result.length; i += 1) {
-    if (isValidNumber(result[i])) {
-      lastValue = result[i];
-    } else if (lastValue !== null) {
-      result[i] = lastValue;
+const getLastNonNull = (values) => {
+  if (!Array.isArray(values)) return null;
+  for (let i = values.length - 1; i >= 0; i -= 1) {
+    if (values[i] !== null && values[i] !== undefined) {
+      return { index: i, value: values[i] };
     }
   }
+  return null;
+};
 
-  if (lastValue !== null) {
-    for (let i = result.length; i < targetLength; i += 1) {
-      result.push(lastValue);
+const collectLastValid = (values, count) => {
+  const collected = [];
+  if (!Array.isArray(values)) return collected;
+  for (let i = values.length - 1; i >= 0 && collected.length < count; i -= 1) {
+    if (values[i] !== null && values[i] !== undefined) {
+      collected.push(values[i]);
     }
   }
+  return collected.reverse();
+};
 
-  return result;
+const classifyTrend = (prices, maValues, threshold = 0.001) => {
+  if (
+    !Array.isArray(prices) ||
+    !Array.isArray(maValues) ||
+    prices.length === 0
+  ) {
+    return "SIDEWAYS";
+  }
+
+  const validValues = collectLastValid(maValues, 10);
+  if (validValues.length < 10) return "SIDEWAYS";
+
+  const first = validValues[0];
+  const last = validValues[validValues.length - 1];
+  if (first === 0) return "SIDEWAYS";
+
+  const slope = (last - first) / first;
+  const priceLast = prices[prices.length - 1];
+  const maLast = last;
+
+  if (slope > threshold && priceLast > maLast) return "UPTREND";
+  if (slope < -threshold && priceLast < maLast) return "DOWNTREND";
+  return "SIDEWAYS";
+};
+
+const findLastPriceCross = (prices, maValues) => {
+  if (!Array.isArray(prices) || !Array.isArray(maValues)) return null;
+  for (let i = prices.length - 1; i >= 1; i -= 1) {
+    const maNow = maValues[i];
+    const maPrev = maValues[i - 1];
+    if (
+      maNow === null ||
+      maNow === undefined ||
+      maPrev === null ||
+      maPrev === undefined
+    ) {
+      continue;
+    }
+    const priceNow = prices[i];
+    const pricePrev = prices[i - 1];
+    const crossedUp = pricePrev <= maPrev && priceNow > maNow;
+    const crossedDown = pricePrev >= maPrev && priceNow < maNow;
+    if (crossedUp || crossedDown) {
+      return i;
+    }
+  }
+  return null;
+};
+
+const buildTrendInfo = (prices, maValues, dates) => {
+  if (
+    !Array.isArray(prices) ||
+    !Array.isArray(maValues) ||
+    prices.length === 0
+  ) {
+    return null;
+  }
+
+  const trend = classifyTrend(prices, maValues);
+  const lastPrice = prices[prices.length - 1];
+  const lastMa = getLastNonNull(maValues)?.value ?? null;
+  const crossIndex = findLastPriceCross(prices, maValues);
+
+  let percentChange = null;
+  let sinceDate = null;
+  if (crossIndex !== null) {
+    const base = prices[crossIndex];
+    if (base) {
+      percentChange = ((lastPrice - base) / base) * 100;
+    }
+    sinceDate = dates?.[crossIndex] ?? null;
+  }
+
+  return {
+    trend,
+    lastPrice,
+    lastMa,
+    percentChange,
+    sinceDate,
+  };
 };
 
 const calculateCrossovers = (shortMa, longMa, dates, prices) => {
@@ -84,20 +162,30 @@ const getActiveChartValue = (entry, mode) => {
     return Number(entry?.close ?? entry?.temperature ?? null);
   }
 
+  if (mode === "earthquake") {
+    return Number(entry?.close ?? entry?.magnitude ?? null);
+  }
+
   return Number(entry?.close ?? null);
 };
 
 const buildCandlestickData = (data, mode) => {
   return data.map((entry) => ({
     x: new Date(entry.date).getTime(),
-    y: mode === "weather"
-      ? [
-          Number(entry.open ?? entry.temperature),
-          Number(entry.high ?? entry.temperature),
-          Number(entry.low ?? entry.temperature),
-          Number(entry.close ?? entry.temperature),
-        ]
-      : [Number(entry.open), Number(entry.high), Number(entry.low), Number(entry.close)],
+    y:
+      mode === "weather"
+        ? [
+            Number(entry.open ?? entry.temperature),
+            Number(entry.high ?? entry.temperature),
+            Number(entry.low ?? entry.temperature),
+            Number(entry.close ?? entry.temperature),
+          ]
+        : [
+            Number(entry.open),
+            Number(entry.high),
+            Number(entry.low),
+            Number(entry.close),
+          ],
   }));
 };
 
@@ -135,18 +223,24 @@ function App() {
   const [headerDropdown, setHeaderDropdown] = useState("stock");
   const [weatherLocation, setWeatherLocation] = useState("");
   const [weatherData, setWeatherData] = useState([]);
+  const [earthquakeLocation, setEarthquakeLocation] = useState("");
+  const [earthquakeData, setEarthquakeData] = useState([]);
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setFullYear(date.getFullYear() - 1);
     return date.toISOString().split("T")[0];
   });
-  const [endDate, setEndDate] = useState(new Date().toISOString().split("T")[0]);
+  const [endDate, setEndDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
   const [stockCurrency, setStockCurrency] = useState(null);
   const [stockSuggestions, setStockSuggestions] = useState([]);
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [locationSuggestions, setLocationSuggestions] = useState([]);
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
-
+  const [earthquakeSuggestions, setEarthquakeSuggestions] = useState([]);
+  const [showEarthquakeSuggestions, setShowEarthquakeSuggestions] =
+    useState(false);
 
   useEffect(() => {
     const checkApi = async () => {
@@ -163,7 +257,12 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const activeData = headerDropdown === "stock" ? stockData : headerDropdown === "weather" ? weatherData : [];
+    const activeData =
+      headerDropdown === "stock"
+        ? stockData
+        : headerDropdown === "weather"
+          ? weatherData
+          : [];
     if (maSeries.length > 0 && activeData.length > 0) {
       handleApply();
     }
@@ -184,7 +283,9 @@ function App() {
 
     searchTimeout.current = setTimeout(async () => {
       try {
-        const response = await fetch(`http://localhost:5001/api/stock/search/${value.trim()}`);
+        const response = await fetch(
+          `http://localhost:5001/api/stock/search/${value.trim()}`,
+        );
         const data = await response.json();
         setStockSuggestions(Array.isArray(data) ? data : []);
         setShowStockSuggestions(true);
@@ -204,36 +305,70 @@ function App() {
   const locationSearchTimeout = useRef(null);
 
   const handleLocationChange = (e) => {
-  const value = e.target.value;
-  setWeatherLocation(value);
+    const value = e.target.value;
+    setWeatherLocation(value);
 
-  clearTimeout(locationSearchTimeout.current);
-  if (value.trim().length < 1) {
+    clearTimeout(locationSearchTimeout.current);
+    if (value.trim().length < 1) {
+      setLocationSuggestions([]);
+      setShowLocationSuggestions(false);
+      return;
+    }
+
+    locationSearchTimeout.current = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `http://localhost:5001/api/weather/search/${encodeURIComponent(value.trim())}`,
+        );
+        const data = await response.json();
+        setLocationSuggestions(Array.isArray(data) ? data : []);
+        setShowLocationSuggestions(true);
+      } catch {
+        setLocationSuggestions([]);
+      }
+    }, 300);
+  };
+
+  const handleLocationSuggestionClick = (suggestion) => {
+    setWeatherLocation(suggestion.name);
     setLocationSuggestions([]);
     setShowLocationSuggestions(false);
-    return;
-  }
+    fetchWeatherData({ location: suggestion.name });
+  };
 
-  locationSearchTimeout.current = setTimeout(async () => {
-    try {
-      const response = await fetch(
-        `http://localhost:5001/api/weather/search/${encodeURIComponent(value.trim())}`
-      );
-      const data = await response.json();
-      setLocationSuggestions(Array.isArray(data) ? data : []);
-      setShowLocationSuggestions(true);
-    } catch {
-      setLocationSuggestions([]);
+  const earthquakeSearchTimeout = useRef(null);
+
+  const handleEarthquakeLocationChange = (e) => {
+    const value = e.target.value;
+    setEarthquakeLocation(value);
+
+    clearTimeout(earthquakeSearchTimeout.current);
+    if (value.trim().length < 1) {
+      setEarthquakeSuggestions([]);
+      setShowEarthquakeSuggestions(false);
+      return;
     }
-  }, 300);
-};
 
-const handleLocationSuggestionClick = (suggestion) => {
-  setWeatherLocation(suggestion.name);
-  setLocationSuggestions([]);
-  setShowLocationSuggestions(false);
-  fetchWeatherData({ location: suggestion.name });
-};
+    earthquakeSearchTimeout.current = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `http://localhost:5001/api/earthquake/search/${encodeURIComponent(value.trim())}`,
+        );
+        const data = await response.json();
+        setEarthquakeSuggestions(Array.isArray(data) ? data : []);
+        setShowEarthquakeSuggestions(true);
+      } catch {
+        setEarthquakeSuggestions([]);
+      }
+    }, 300);
+  };
+
+  const handleEarthquakeSuggestionClick = (suggestion) => {
+    setEarthquakeLocation(suggestion.name);
+    setEarthquakeSuggestions([]);
+    setShowEarthquakeSuggestions(false);
+    fetchEarthquakeData({ location: suggestion.name });
+  };
 
   const fetchStockData = async (overrides = {}) => {
     const nextSymbol = overrides.symbol ?? symbol;
@@ -250,11 +385,13 @@ const handleLocationSuggestionClick = (suggestion) => {
       setLoading(true);
       setErrorMessage("");
       const response = await fetch(
-        `http://localhost:5001/api/stock/${nextSymbol.trim()}?start=${nextStart}&end=${nextEnd}&interval=${nextInterval}`
+        `http://localhost:5001/api/stock/${nextSymbol.trim()}?start=${nextStart}&end=${nextEnd}&interval=${nextInterval}`,
       );
       if (!response.ok) {
         const errorResult = await response.json().catch(() => ({}));
-        throw new Error(errorResult.error || `Server responded ${response.status}`);
+        throw new Error(
+          errorResult.error || `Server responded ${response.status}`,
+        );
       }
       const result = await response.json();
 
@@ -262,7 +399,9 @@ const handleLocationSuggestionClick = (suggestion) => {
       if (Array.isArray(stockRows)) {
         const cleaned = [...stockRows]
           .reverse()
-          .filter((entry) => entry?.close !== null && entry?.close !== undefined);
+          .filter(
+            (entry) => entry?.close !== null && entry?.close !== undefined,
+          );
         setStockData(cleaned);
         setStockCurrency(result?.currency ?? "USD");
       } else {
@@ -304,17 +443,21 @@ const handleLocationSuggestionClick = (suggestion) => {
       setLoading(true);
       setErrorMessage("");
       const response = await fetch(
-        `http://localhost:5001/api/weather/${encodeURIComponent(nextLocation.trim())}?start=${nextStart}&end=${nextEnd}&interval=${nextTimeInterval}`
+        `http://localhost:5001/api/weather/${encodeURIComponent(nextLocation.trim())}?start=${nextStart}&end=${nextEnd}&interval=${nextTimeInterval}`,
       );
       if (!response.ok) {
         const errorResult = await response.json().catch(() => ({}));
-        throw new Error(errorResult.error || `Server responded ${response.status}`);
+        throw new Error(
+          errorResult.error || `Server responded ${response.status}`,
+        );
       }
       const result = await response.json();
 
-      // Expect result to be array of { date, temperature }
       if (Array.isArray(result)) {
-        const cleaned = [...result].filter((entry) => entry?.date !== undefined && entry?.temperature !== undefined);
+        const cleaned = [...result].filter(
+          (entry) =>
+            entry?.date !== undefined && entry?.temperature !== undefined,
+        );
         setWeatherData(cleaned);
       } else {
         console.warn("Unexpected weather data format", result);
@@ -332,6 +475,34 @@ const handleLocationSuggestionClick = (suggestion) => {
     }
   };
 
+  const fetchEarthquakeData = async (overrides = {}) => {
+    const nextLocation = overrides.location ?? earthquakeLocation;
+    const nextStart = overrides.startDate ?? startDate;
+    const nextEnd = overrides.endDate ?? endDate;
+    const nextInterval = overrides.interval ?? timeInterval;
+
+    try {
+      const params = new URLSearchParams({
+        start: nextStart,
+        end: nextEnd,
+        interval: nextInterval,
+      });
+
+      if (nextLocation.trim()) params.append("location", nextLocation.trim());
+
+      const response = await fetch(
+        `http://localhost:5001/api/earthquake?${params.toString()}`,
+      );
+      const result = await response.json();
+
+      if (Array.isArray(result.data)) {
+        setEarthquakeData(result.data);
+      }
+    } catch (error) {
+      setErrorMessage("Failed to fetch earthquake data");
+    }
+  };
+
   const handleSymbolKeyPress = (event) => {
     if (event.key === "Enter" && symbol.trim()) {
       fetchStockData({ symbol });
@@ -341,11 +512,19 @@ const handleLocationSuggestionClick = (suggestion) => {
   const handleIntervalChange = (event) => {
     const nextInterval = event.target.value;
     setTimeInterval(nextInterval);
+
     if (headerDropdown === "weather") {
       if (weatherLocation.trim()) {
-        fetchWeatherData({ timeInterval: nextInterval, location: weatherLocation });
+        fetchWeatherData({
+          timeInterval: nextInterval,
+          location: weatherLocation,
+        });
       }
       return;
+    }
+
+    if (headerDropdown === "earthquake") {
+      fetchEarthquakeData({ interval: nextInterval });
     }
 
     if (symbol.trim()) {
@@ -359,32 +538,54 @@ const handleLocationSuggestionClick = (suggestion) => {
     }
   };
 
+  const handleEarthquakeLocationKeyPress = (event) => {
+    if (event.key === "Enter") {
+      fetchEarthquakeData({ location: earthquakeLocation });
+    }
+  };
+
   const updateMaConfig = (id, patch) => {
     setMaConfigs((prev) =>
-      prev.map((config) => (config.id === id ? { ...config, ...patch } : config))
+      prev.map((config) =>
+        config.id === id ? { ...config, ...patch } : config,
+      ),
     );
   };
 
   const addMaConfig = () => {
     setMaConfigs((prev) => {
-      const nextId = prev.length ? Math.max(...prev.map((item) => item.id)) + 1 : 1;
+      const nextId = prev.length
+        ? Math.max(...prev.map((item) => item.id)) + 1
+        : 1;
       return [...prev, buildMaConfig(nextId)];
     });
   };
 
   const removeMaConfig = (id) => {
-    setMaConfigs((prev) => prev.filter((config) => config.id !== id));
+    setMaConfigs((prev) =>
+      prev.length > 1 ? prev.filter((config) => config.id !== id) : prev,
+    );
   };
 
   const handleApply = async () => {
     try {
-      const activeData = headerDropdown === "stock" ? stockData : headerDropdown === "weather" ? weatherData : [];
+      const activeData =
+        headerDropdown === "stock"
+          ? stockData
+          : headerDropdown === "weather"
+            ? weatherData
+            : headerDropdown === "earthquake"
+              ? earthquakeData
+              : [];
+
       if (!activeData || activeData.length === 0) {
         setErrorMessage("Please fetch data first for the selected mode");
         return;
       }
 
-      const prices = activeData.map((d) => getActiveChartValue(d, headerDropdown));
+      const prices = activeData.map((d) =>
+        getActiveChartValue(d, headerDropdown),
+      );
 
       setLoading(true);
 
@@ -402,7 +603,9 @@ const handleLocationSuggestionClick = (suggestion) => {
 
           if (!response.ok) {
             const errorResult = await response.json().catch(() => ({}));
-            throw new Error(errorResult.error || `Server responded ${response.status}`);
+            throw new Error(
+              errorResult.error || `Server responded ${response.status}`,
+            );
           }
 
           const result = await response.json();
@@ -412,42 +615,36 @@ const handleLocationSuggestionClick = (suggestion) => {
             period: result.period,
             values: result.values,
           };
-        })
+        }),
       );
 
       setMaSeries(computed);
-      const dates = activeData.map((d) => d.date);
-      let nextCrossovers = [];
 
       if (computed.length >= 2) {
         const first = computed[0];
         const second = computed[1];
         const shortSeries = first.period <= second.period ? first : second;
         const longSeries = first.period <= second.period ? second : first;
-        nextCrossovers = calculateCrossovers(shortSeries.values, longSeries.values, dates, prices);
+        const dates = activeData.map((d) => d.date);
+        setCrossovers(
+          calculateCrossovers(
+            shortSeries.values,
+            longSeries.values,
+            dates,
+            prices,
+          ),
+        );
+      } else {
+        setCrossovers([]);
       }
 
-      setCrossovers(nextCrossovers);
-
-      const trendResponse = await fetch("http://localhost:5001/api/classify-trend", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      setTrendInfo(
+        buildTrendInfo(
           prices,
-          maArrays: computed.map((entry) => entry.values),
-          periods: computed.map((entry) => entry.period),
-          crossovers: nextCrossovers,
-          mode: headerDropdown,
-        }),
-      });
-
-      if (!trendResponse.ok) {
-        const errorResult = await trendResponse.json().catch(() => ({}));
-        throw new Error(errorResult.error || `Server responded ${trendResponse.status}`);
-      }
-
-      const trendResult = await trendResponse.json();
-      setTrendInfo(trendResult);
+          computed[0]?.values,
+          activeData.map((d) => d.date),
+        ),
+      );
     } catch (error) {
       console.error("Error computing MA:", error);
       setErrorMessage(error.message || "Failed to compute moving average");
@@ -457,7 +654,15 @@ const handleLocationSuggestionClick = (suggestion) => {
   };
 
   const priceSeries = useMemo(() => {
-    const activeData = headerDropdown === "stock" ? stockData : headerDropdown === "weather" ? weatherData : [];
+    const activeData =
+      headerDropdown === "stock"
+        ? stockData
+        : headerDropdown === "weather"
+          ? weatherData
+          : headerDropdown === "earthquake"
+            ? earthquakeData
+            : [];
+
     if (!activeData.length) return [];
 
     if (graphType === "candlestick") {
@@ -472,7 +677,14 @@ const handleLocationSuggestionClick = (suggestion) => {
 
     return [
       {
-        name: headerDropdown === "stock" ? "Price" : "Temperature",
+        name:
+          headerDropdown === "stock"
+            ? "Price"
+            : headerDropdown === "weather"
+              ? "Temperature"
+              : headerDropdown === "earthquake"
+                ? "Magnitude"
+                : "Value",
         type: "line",
         data: activeData.map((d) => ({
           x: new Date(d.date).getTime(),
@@ -480,22 +692,28 @@ const handleLocationSuggestionClick = (suggestion) => {
         })),
       },
     ];
-  }, [stockData, weatherData, graphType, headerDropdown]);
+  }, [stockData, weatherData, earthquakeData, graphType, headerDropdown]);
 
   const maLineSeries = useMemo(() => {
-    const sourceData = headerDropdown === "stock" ? stockData : headerDropdown === "weather" ? weatherData : [];
+    const sourceData =
+      headerDropdown === "stock"
+        ? stockData
+        : headerDropdown === "weather"
+          ? weatherData
+          : headerDropdown === "earthquake"
+            ? earthquakeData
+            : [];
+
     if (!maSeries.length || !sourceData.length) return [];
     return maSeries.map((series) => ({
       name: `${series.type} (${series.period})`,
       type: "line",
-      data: extendTrailingValues(series.values, sourceData.length)
-        .slice(0, sourceData.length)
-        .map((val, idx) => ({
-          x: new Date(sourceData[idx].date).getTime(),
-          y: val,
-        })),
+      data: series.values.map((val, idx) => ({
+        x: new Date(sourceData[idx].date).getTime(),
+        y: val,
+      })),
     }));
-  }, [maSeries, stockData, weatherData, headerDropdown]);
+  }, [maSeries, stockData, weatherData, earthquakeData, headerDropdown]);
 
   const goldenCrossPoints = useMemo(
     () =>
@@ -505,7 +723,7 @@ const handleLocationSuggestionClick = (suggestion) => {
           x: item.date ? new Date(item.date).getTime() : item.index,
           y: item.value,
         })),
-    [crossovers]
+    [crossovers],
   );
 
   const deathCrossPoints = useMemo(
@@ -516,7 +734,7 @@ const handleLocationSuggestionClick = (suggestion) => {
           x: item.date ? new Date(item.date).getTime() : item.index,
           y: item.value,
         })),
-    [crossovers]
+    [crossovers],
   );
 
   const signalSeries = useMemo(() => {
@@ -581,28 +799,15 @@ const handleLocationSuggestionClick = (suggestion) => {
     return widths;
   }, [series, graphType]);
 
-  const trendReasonCopy = {
-    price_vs_ma: "Based on price vs MA position",
-    latest_crossover: "Based on latest Golden/Death Cross",
-    no_crossover_price_vs_fastest_ma: "No cross yet - using fastest MA",
-    no_crossover_no_valid_ma: "No cross yet - insufficient MA data",
-    insufficient_data: "Not enough data to classify",
-    ma_zero_division: "Not enough data to classify",
-    no_valid_ma_values: "Not enough data to classify",
-  };
-
-  const trendLabel = trendInfo?.trend ?? "CONSOLIDATION";
-  const trendLabelDisplay = trendLabel === "UPTREND"
-    ? "▲ Uptrend"
-    : trendLabel === "DOWNTREND"
-      ? "▼ Downtrend"
-      : "→ Consolidation";
-  const trendMeta = trendInfo?.trend_reason
-    ? trendReasonCopy[trendInfo.trend_reason] || "Not enough data to classify"
-    : "Not enough data to classify";
-  const showDisagreement = Boolean(
-    trendInfo?.trend_detail?.length > 1 && trendInfo?.trend_agree === false
-  );
+  const trendLabel = trendInfo?.trend || "SIDEWAYS";
+  const trendMeta =
+    trendInfo?.percentChange !== null && trendInfo?.percentChange !== undefined
+      ? `${trendInfo.percentChange >= 0 ? "+" : ""}${trendInfo.percentChange.toFixed(2)}% since ${
+          trendInfo.sinceDate
+            ? new Date(trendInfo.sinceDate).toLocaleDateString()
+            : "last cross"
+        }`
+      : "Insufficient MA history";
 
   const formatChartValue = (value) => {
     const num = Number(value);
@@ -612,6 +817,10 @@ const handleLocationSuggestionClick = (suggestion) => {
 
     if (headerDropdown === "weather") {
       return `${num.toFixed(2)}°C`;
+    }
+
+    if (headerDropdown === "earthquake") {
+      return `M ${num.toFixed(1)}`;
     }
 
     try {
@@ -634,12 +843,13 @@ const handleLocationSuggestionClick = (suggestion) => {
           </div>
           <div className="header-copy">
             <p className="header-eyebrow">Moving Average Algorithm </p>
-            <h1>TrendView</h1>
+            <h1>Trend Analyzer</h1>
           </div>
         </div>
 
         <div className="header-status">
           <span className="status-dot" aria-hidden="true" />
+          Live market feed
         </div>
       </header>
 
@@ -648,164 +858,249 @@ const handleLocationSuggestionClick = (suggestion) => {
           <div className="chart-header">
             <div>
               <h2>Chart Area</h2>
-              <p className="chart-subtitle">Hover crossover markers to see Golden/Death Cross.</p>
+              <p className="chart-subtitle">
+                Hover crossover markers to see Golden/Death Cross.
+              </p>
             </div>
             <div className={`trend-card trend-${trendLabel.toLowerCase()}`}>
               <span className="trend-title">Current Trend</span>
-              <span className="trend-value">{trendLabelDisplay}</span>
+              <span className="trend-value">
+                {trendLabel.replace("_", " ")}
+              </span>
               <span className="trend-meta">{trendMeta}</span>
-              {showDisagreement ? (
-                <span className="trend-warning">⚠ MAs disagree</span>
-              ) : null}
             </div>
           </div>
 
-          {errorMessage ? <div className="chart-placeholder">{errorMessage}</div> : null}
-          {!errorMessage && (() => {
-            const activeData = headerDropdown === "stock" ? stockData : headerDropdown === "weather" ? weatherData : [];
-            if (!activeData || activeData.length === 0) {
-              return <div className="chart-placeholder">Chart will display here</div>;
-            }
+          {errorMessage ? (
+            <div className="chart-placeholder">{errorMessage}</div>
+          ) : null}
+          {!errorMessage &&
+            (() => {
+              const activeData =
+                headerDropdown === "stock"
+                  ? stockData
+                  : headerDropdown === "weather"
+                    ? weatherData
+                    : headerDropdown === "earthquake"
+                      ? earthquakeData
+                      : [];
 
-            return (
-              <div className="chart-wrapper">
-                {loading ? <div className="chart-overlay">Loading...</div> : null}
-                <Chart
-                  options={{
-                    chart: {
-                      id: "data-chart",
-                      toolbar: { show: true },
-                      background: "transparent",
-                      foreColor: "#d1d5db",
-                    },
-                    theme: { mode: "dark" },
-                    grid: {
-                      borderColor: "rgba(148, 163, 184, 0.14)",
-                      strokeDashArray: 4,
-                      xaxis: { lines: { show: false } },
-                      yaxis: { lines: { show: true } },
-                    },
-                    xaxis: {
-                      type: "datetime",
-                      axisBorder: { color: "rgba(148, 163, 184, 0.18)" },
-                      axisTicks: { color: "rgba(148, 163, 184, 0.18)" },
-                      labels: { style: { colors: "#94a3b8" } },
-                    },
-                    stroke: { curve: "smooth", width: strokeWidths },
-                    tooltip: {
-                      theme: "dark",
-                      x: { format: "yyyy-MM-dd" },
-                      shared: true,
-                      y: { formatter: (value) => formatChartValue(value) },
-                    },
-                    yaxis: {
-                      decimalsInFloat: 2,
-                      labels: {
-                        style: { colors: "#94a3b8" },
-                        formatter: (value) => formatChartValue(value),
+              if (!activeData || activeData.length === 0) {
+                return (
+                  <div className="chart-placeholder">
+                    Chart will display here
+                  </div>
+                );
+              }
+
+              return (
+                <div className="chart-wrapper">
+                  {loading ? (
+                    <div className="chart-overlay">Loading...</div>
+                  ) : null}
+                  <Chart
+                    options={{
+                      chart: {
+                        id: "data-chart",
+                        toolbar: { show: true },
+                        background: "transparent",
+                        foreColor: "#d1d5db",
                       },
-                    },
-                    colors: chartColors,
-                    markers: { size: markerSizes, strokeWidth: 2, strokeColors: "#0f172a" },
-                    plotOptions: {
-                      candlestick: {
-                        colors: { upward: "#22C55E", downward: "#EF4444" },
-                        wick: { useFillColor: true },
+                      theme: { mode: "dark" },
+                      grid: {
+                        borderColor: "rgba(148, 163, 184, 0.14)",
+                        strokeDashArray: 4,
+                        xaxis: { lines: { show: false } },
+                        yaxis: { lines: { show: true } },
                       },
-                      bar: {
-                        columnWidth: getCandlestickColumnWidth(headerDropdown, timeInterval),
+                      xaxis: {
+                        type: "datetime",
+                        axisBorder: { color: "rgba(148, 163, 184, 0.18)" },
+                        axisTicks: { color: "rgba(148, 163, 184, 0.18)" },
+                        labels: { style: { colors: "#94a3b8" } },
                       },
-                    },
-                    legend: { show: true, position: "top", labels: { colors: "#d1d5db" } },
-                  }}
-                  series={series}
-                  type="line"
-                  height={400}
-                />
-              </div>
-            );
-          })()}
+                      stroke: { curve: "smooth", width: strokeWidths },
+                      tooltip: {
+                        theme: "dark",
+                        x: { format: "yyyy-MM-dd" },
+                        shared: true,
+                        y: { formatter: (value) => formatChartValue(value) },
+                      },
+                      yaxis: {
+                        decimalsInFloat: 2,
+                        labels: {
+                          style: { colors: "#94a3b8" },
+                          formatter: (value) => formatChartValue(value),
+                        },
+                      },
+                      colors: chartColors,
+                      markers: {
+                        size: markerSizes,
+                        strokeWidth: 2,
+                        strokeColors: "#0f172a",
+                      },
+                      plotOptions: {
+                        candlestick: {
+                          colors: { upward: "#22C55E", downward: "#EF4444" },
+                          wick: { useFillColor: true },
+                        },
+                        bar: {
+                          columnWidth: getCandlestickColumnWidth(
+                            headerDropdown,
+                            timeInterval,
+                          ),
+                        },
+                      },
+                      legend: {
+                        show: true,
+                        position: "top",
+                        labels: { colors: "#d1d5db" },
+                      },
+                    }}
+                    series={series}
+                    type="line"
+                    height={400}
+                  />
+                </div>
+              );
+            })()}
         </section>
 
         <section className="controls-panel">
           <div className="controls-header">
             <h2>Controls</h2>
-            <select 
+            <select
               className="control-dropdown"
               value={headerDropdown}
               onChange={(event) => setHeaderDropdown(event.target.value)}
             >
-              <option value="stock"> Stocks </option>
-              <option value="weather"> Weather </option>
-              <option value="traffic"> Traffic </option>
+              <option value="stock">Stocks</option>
+              <option value="weather">Weather</option>
+              <option value="earthquake">Earthquakes</option>
             </select>
           </div>
 
           <div className="control-group">
             {headerDropdown === "stock" ? (
-  <>
-    <label htmlFor="stock-company">Search for a Company</label>
-      <div style={{ position: "relative" }}>
-        <input
-            id="stock-company"
-            type="text"
-            value={symbol}
-            onChange={handleSymbolChange}
-            onKeyPress={handleSymbolKeyPress}
-            onBlur={() => setTimeout(() => setShowStockSuggestions(false), 150)}
-            placeholder="Search by symbol or company name"
-        />
-        {showStockSuggestions && stockSuggestions.length > 0 && (
-          <ul className="suggestions-list">
-            {stockSuggestions.map((s) => (
-              <li
-                key={s.symbol}
-                className="suggestion-item"
-                onMouseDown={() => handleSuggestionClick(s)}
-              >
-                <span className="suggestion-symbol">{s.symbol}</span>
-                <span className="suggestion-name">{s.name}</span>
-                {s.exchange && <span className="suggestion-exchange">{s.exchange}</span>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </>
+              <>
+                <label htmlFor="stock-company">Search for a Company</label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    id="stock-company"
+                    type="text"
+                    value={symbol}
+                    onChange={handleSymbolChange}
+                    onKeyPress={handleSymbolKeyPress}
+                    onBlur={() =>
+                      setTimeout(() => setShowStockSuggestions(false), 150)
+                    }
+                    placeholder="Search by symbol or company name"
+                  />
+                  {showStockSuggestions && stockSuggestions.length > 0 && (
+                    <ul className="suggestions-list">
+                      {stockSuggestions.map((s) => (
+                        <li
+                          key={s.symbol}
+                          className="suggestion-item"
+                          onMouseDown={() => handleSuggestionClick(s)}
+                        >
+                          <span className="suggestion-symbol">{s.symbol}</span>
+                          <span className="suggestion-name">{s.name}</span>
+                          {s.exchange && (
+                            <span className="suggestion-exchange">
+                              {s.exchange}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </>
             ) : headerDropdown === "weather" ? (
               <>
                 <label htmlFor="weather-location">Search Location</label>
-<div style={{ position: "relative" }}>
-  <input
-    id="weather-location"
-    type="text"
-    value={weatherLocation}
-    onChange={handleLocationChange}
-    onKeyPress={handleLocationKeyPress}
-    onBlur={() => setTimeout(() => setShowLocationSuggestions(false), 150)}
-    placeholder="Search by city"
-  />
-  {showLocationSuggestions && locationSuggestions.length > 0 && (
-    <ul className="suggestions-list">
-      {locationSuggestions.map((s, index) => (
-        <li
-          key={index}
-          className="suggestion-item"
-          onMouseDown={() => handleLocationSuggestionClick(s)}
-        >
-          <span className="suggestion-symbol">{s.name}</span>
-          <span className="suggestion-name">{s.region ?? s.country}</span>
-          <span className="suggestion-exchange">{s.countryCode}</span>
-        </li>
-      ))}
-    </ul>
-  )}
-</div>
+                <div style={{ position: "relative" }}>
+                  <input
+                    id="weather-location"
+                    type="text"
+                    value={weatherLocation}
+                    onChange={handleLocationChange}
+                    onKeyPress={handleLocationKeyPress}
+                    onBlur={() =>
+                      setTimeout(() => setShowLocationSuggestions(false), 150)
+                    }
+                    placeholder="Search by city"
+                  />
+                  {showLocationSuggestions &&
+                    locationSuggestions.length > 0 && (
+                      <ul className="suggestions-list">
+                        {locationSuggestions.map((s, index) => (
+                          <li
+                            key={index}
+                            className="suggestion-item"
+                            onMouseDown={() => handleLocationSuggestionClick(s)}
+                          >
+                            <span className="suggestion-symbol">{s.name}</span>
+                            <span className="suggestion-name">
+                              {s.region ?? s.country}
+                            </span>
+                            <span className="suggestion-exchange">
+                              {s.countryCode}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                </div>
+              </>
+            ) : headerDropdown === "earthquake" ? (
+              <>
+                <label htmlFor="earthquake-location">
+                  Search Location (optional)
+                </label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    id="earthquake-location"
+                    type="text"
+                    value={earthquakeLocation}
+                    onChange={handleEarthquakeLocationChange}
+                    onKeyPress={handleEarthquakeLocationKeyPress}
+                    onBlur={() =>
+                      setTimeout(() => setShowEarthquakeSuggestions(false), 150)
+                    }
+                    placeholder="Search by city, or leave empty for global"
+                  />
+                  {showEarthquakeSuggestions &&
+                    earthquakeSuggestions.length > 0 && (
+                      <ul className="suggestions-list">
+                        {earthquakeSuggestions.map((s, index) => (
+                          <li
+                            key={index}
+                            className="suggestion-item"
+                            onMouseDown={() =>
+                              handleEarthquakeSuggestionClick(s)
+                            }
+                          >
+                            <span className="suggestion-symbol">{s.name}</span>
+                            <span className="suggestion-name">
+                              {s.region ?? s.country}
+                            </span>
+                            <span className="suggestion-exchange">
+                              {s.countryCode}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                </div>
               </>
             ) : (
               <>
                 <label>Mode</label>
-                <div className="control-note">Select a mode from the dropdown</div>
+                <div className="control-note">
+                  Select a mode from the dropdown
+                </div>
               </>
             )}
           </div>
@@ -834,7 +1129,11 @@ const handleLocationSuggestionClick = (suggestion) => {
 
           <div className="control-group">
             <label htmlFor="time-interval">Time Interval</label>
-            <select id="time-interval" value={timeInterval} onChange={handleIntervalChange}>
+            <select
+              id="time-interval"
+              value={timeInterval}
+              onChange={handleIntervalChange}
+            >
               <option value="1d">Daily</option>
               <option value="1wk">Weekly</option>
               <option value="1mo">Monthly</option>
@@ -876,7 +1175,9 @@ const handleLocationSuggestionClick = (suggestion) => {
               <div className="ma-index">MA {index + 1}</div>
               <select
                 value={config.type}
-                onChange={(event) => updateMaConfig(config.id, { type: event.target.value })}
+                onChange={(event) =>
+                  updateMaConfig(config.id, { type: event.target.value })
+                }
               >
                 <option value="SMA">SMA</option>
                 <option value="EMA">EMA</option>
@@ -886,7 +1187,9 @@ const handleLocationSuggestionClick = (suggestion) => {
                 type="number"
                 min="2"
                 value={config.period}
-                onChange={(event) => updateMaConfig(config.id, { period: event.target.value })}
+                onChange={(event) =>
+                  updateMaConfig(config.id, { period: event.target.value })
+                }
               />
               <button
                 type="button"
@@ -899,7 +1202,7 @@ const handleLocationSuggestionClick = (suggestion) => {
           ))}
 
           <button type="button" className="apply-button" onClick={handleApply}>
-            Apply
+            Apply MAs
           </button>
         </section>
       </main>
